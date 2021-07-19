@@ -15,33 +15,6 @@ in blockchain replication. It is built to solve the following problems:
   than having to get the entire message, consumers should be able to subscribe
   to the portions they are interested in.
 
-Element:
-
-Key:
-
-[
-  MSG_TYPE, # 0x0
-  MSG_ID,   # Probably block hash
-]
-
-Value:
-
-[
-  [
-    PREFIX, (33 bytes)
-    count,  (4 bytes)
-  ],
-  ...
-]
-
-Sub Element:
-
-Key:
-
-[
-  MSG_TYPE, # 0xFF
-  MSG_ID,
-]
 
 
 

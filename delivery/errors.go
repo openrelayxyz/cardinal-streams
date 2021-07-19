@@ -4,6 +4,7 @@ import (
   "fmt"
 )
 
-const (
-  ErrPrefixMissing = fmt.Errorf("Prefix missing")
+var (
+  ErrPrefixMissing = fmt.Errorf("prefix missing")
+  ErrPrefixOverlap = fmt.Errorf("producers must not have overlapping prefixes")
 )
