@@ -68,10 +68,18 @@ func (pb *PendingBatch) ApplyMessage(m Message) bool {
     if pb.DecPrefixCounter(path) {
       pb.Values[path] = m.Value()
       return true
-    } else {
-      pb.PendingMessages[string(m.Key())] = m
-      return false
     }
+    pb.PendingMessages[string(m.Key())] = m
+    return false
+  case BatchDeleteMsgType:
+    path := string(m.Key()[33:])
+    if _, ok := pb.Deletes[path]; ok { return false } // Already set
+    if pb.DecPrefixCounter(path) {
+      pb.Deletes[path] = struct{}{}
+      return true
+    }
+    pb.PendingMessages[string(m.Key())] = m
+    return false
   default:
     log.Warn("Unknown message type", "id", m.Key()[0], "key", m.Key(), "val", m.Value())
   }
@@ -98,7 +106,6 @@ type prefixBatch struct {
 }
 
 type MessageProcessor struct {
-  lastEmittedHash types.Hash
   lastEmittedNum  int64
   reorgThreshold  int64
   pendingBatches  map[types.Hash]*PendingBatch
@@ -107,6 +114,24 @@ type MessageProcessor struct {
   oldBlocks       map[types.Hash]struct{}
   completed       *lru.Cache
   feed            types.Feed
+}
+
+func NewMessageProcessor(lastEmittedNum int64, reorgThreshold int64, trackedPrefixes []*regexp.Regexp) *MessageProcessor {
+  cache, err := lru.New(int(2 * reorgThreshold))
+  if err != nil { panic(err.Error()) }
+  return &MessageProcessor{
+    lastEmittedNum: lastEmittedNum,
+    reorgThreshold: reorgThreshold,
+    trackedPrefixes: trackedPrefixes,
+    completed: cache,
+    pendingBatches:  make(map[types.Hash]*PendingBatch),
+    pendingMessages: make(map[types.Hash]map[string]Message),
+    oldBlocks:       make(map[types.Hash]struct{}),
+  }
+}
+
+func (mp *MessageProcessor) Subscribe(ch chan<- *PendingBatch) types.Subscription {
+  return mp.feed.Subscribe(ch)
 }
 
 func (mp *MessageProcessor) ProcessMessage(m Message) error {
@@ -139,6 +164,7 @@ func (mp *MessageProcessor) ProcessMessage(m Message) error {
       PendingMessages: make(map[string]Message),
     }
     for prefix, update := range b.Updates {
+      // log.Info("Batch update:", "prefix", prefix, "count", update.Count, "sb", update.Subbatch)
       match := false
       for _, re := range mp.trackedPrefixes {
         if re.MatchString(prefix) {
@@ -148,6 +174,7 @@ func (mp *MessageProcessor) ProcessMessage(m Message) error {
       }
       if !match { continue } // Regardless of message type, if we're ignoring the prefix, skip this update
       if len(update.Value) > 0 { mp.pendingBatches[hash].Values[prefix] = update.Value }
+      if update.Delete { mp.pendingBatches[hash].Deletes[prefix] = struct{}{} }
       if update.Count != 0 {
         mp.pendingBatches[hash].Prefixes[prefix] = update.Count
       }
@@ -189,6 +216,7 @@ func (mp *MessageProcessor) ProcessMessage(m Message) error {
 
   if b := mp.pendingBatches[hash] ; b.Ready() {
     mp.feed.Send(b)
+    mp.completed.Add(hash, struct{}{})
   }
   return nil
 }

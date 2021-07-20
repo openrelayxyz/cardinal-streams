@@ -53,7 +53,7 @@ type message struct{
 func (m *message) Key() []byte { return m.key }
 func (m *message) Value() []byte { return m.value }
 
-func (p *Producer) AddBlock(number int64, hash, parentHash types.Hash, weight *big.Int, updates map[string][]byte, deletes map[string]struct{}, batches map[string]types.Hash) map[string][]Message {
+func (p *Producer) AddBlock(number int64, hash, parentHash types.Hash, weight *big.Int, updates map[string][]byte, deletes map[string]struct{}, batches map[string]types.Hash) (map[string][]Message, error) {
 
   b := &Batch{
     Number: number,
@@ -103,6 +103,7 @@ func (p *Producer) AddBlock(number int64, hash, parentHash types.Hash, weight *b
   }
   //Create batch messages
   for k, h := range batches {
+    if _, ok := b.Updates[k]; ok { return nil, ErrPrefixConflict }
     b.Updates[k] = BatchRecord{Subbatch: h}
     bi := &batchInfo{
       topic: p.defaultTopic,
@@ -117,13 +118,14 @@ func (p *Producer) AddBlock(number int64, hash, parentHash types.Hash, weight *b
     p.pendingBatches[h] = bi
   }
   for k, c := range counts {
+    if _, ok := b.Updates[k]; ok { return nil, ErrPrefixConflict }
     b.Updates[k] = BatchRecord{Count: c}
   }
   topicMessages[p.defaultTopic] = append(topicMessages[p.defaultTopic], &message{
       key: BatchType.GetKey(hash.Bytes()),
       value: b.EncodeAvro(),
   })
-  return topicMessages
+  return topicMessages, nil
 }
 
 func (p *Producer) SendBatch(batchid types.Hash, delete []string, update map[string][]byte) (map[string][]Message, error) {

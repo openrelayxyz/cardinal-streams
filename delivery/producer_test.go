@@ -16,10 +16,11 @@ func TestProducer(t *testing.T) {
     map[string]string{
       "foo/": "foo",
       "bar/[^/]+/baz/": "bar",
+      "state/": "state",
     },
   )
   if err != nil { t.Errorf(err.Error()) }
-  msgs := p.AddBlock(
+  msgs, err := p.AddBlock(
     0,
     types.HexToHash("01"),
     types.HexToHash("00"),
@@ -35,9 +36,10 @@ func TestProducer(t *testing.T) {
       "default/delete": struct{}{},
     },
     map[string]types.Hash{
-      "foo/": types.HexToHash("ff"),
+      "state/": types.HexToHash("ff"),
     },
   )
+  if err != nil { t.Fatalf(err.Error()) }
   if l := len(msgs["foo"]); l != 2 {
     t.Errorf("Unexpected message count on topic foo. Expected 2, got %v", l)
   }
@@ -54,15 +56,15 @@ func TestProducer(t *testing.T) {
   if b.Number != 0 { t.Errorf("Unexpected batch number") }
   if !bytes.Equal(b.Weight, new(big.Int).Bytes()) { t.Errorf("Unexpected weight") }
   if b.ParentHash != types.HexToHash("00") { t.Errorf("Unexpected hash" ) }
-  if l := len(b.Updates); l != 5 { t.Errorf("Unexxpecte updates length; Expected 5, got %v", l)} // 2 prefixes, 1 batch, 2 changes not in schema
+  if l := len(b.Updates); l != 6 { t.Errorf("Unexpected updates length; Expected 6, got %v", l)} // 2 prefixes, 1 batch, 2 changes not in schema
 
   msgs, err = p.SendBatch(types.HexToHash("ff"), []string{"whatever/", "other/"}, map[string][]byte{"state/thing": []byte("thing!")})
   if err != nil { t.Errorf(err.Error()) }
   if l := len(msgs); l != 1 { t.Errorf("Expected 1 topic, got %v", l)}
-  foomsgs, ok := msgs["foo"]
-  if !ok { t.Errorf("Expected topic foo, got %v", msgs)}
-  if l := len(foomsgs); l != 3 { t.Errorf("Expected 3 messages, got %v", l) }
-  if x := SubBatchHeaderType.GetKey(types.HexToHash("01").Bytes(), types.HexToHash("ff").Bytes()); !bytes.Equal(foomsgs[0].Key(), x) {
-    t.Errorf("Expected key to be %#x, got %#x", x, foomsgs[0].Key())
+  statemsgs, ok := msgs["state"]
+  if !ok { t.Errorf("Expected topic state, got %v", msgs)}
+  if l := len(statemsgs); l != 3 { t.Errorf("Expected 3 messages, got %v", l) }
+  if x := SubBatchHeaderType.GetKey(types.HexToHash("01").Bytes(), types.HexToHash("ff").Bytes()); !bytes.Equal(statemsgs[0].Key(), x) {
+    t.Errorf("Expected key to be %#x, got %#x", x, statemsgs[0].Key())
   }
 }
