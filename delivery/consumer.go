@@ -10,17 +10,6 @@ import (
   "regexp"
 )
 
-type MessageType byte
-
-const (
-  BatchType MessageType = iota  // BatchType.$Hash
-  SubBatchHeaderType            // SubBatchHeaderType.$Hash.$BatchId
-  SubBatchMsgType               // SubBatchMsgType.$hash.$BatchId.$Index
-  BatchMsgType                  // BatchMsgType.$hash./path/
-  BatchDeleteMsgType            // BatchDeleteMsgType.$hash./path/
-)
-
-
 type Message interface {
   Key() []byte
   Value() []byte

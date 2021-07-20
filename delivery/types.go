@@ -14,6 +14,13 @@ type Batch struct{
   Hash types.Hash
 }
 
+func (b *Batch) EncodeAvro() []byte {
+  data, err := avro.Marshal(batchSchema, b)
+  // This shouldn't occcur unless there's a mismatch between the Batch type and the avro schema, which should get caught in testing
+  if err != nil { panic(err.Error()) }
+  return data
+}
+
 type BatchRecord struct{
   Value []byte        `avro:"value"`
   Count int           `avro:"count"`
@@ -21,9 +28,17 @@ type BatchRecord struct{
   Delete bool         `avro:"delete"`
 }
 
+
 type SubBatchRecord struct{
   Delete []string           `avro:"delete"`
   Updates map[string][]byte `avro:"updates"`
+}
+
+func (b *SubBatchRecord) EncodeAvro() []byte {
+  data, err := avro.Marshal(updateSchema, b)
+  // This shouldn't occcur unless there's a mismatch between the Batch type and the avro schema, which should get caught in testing
+  if err != nil { panic(err.Error()) }
+  return data
 }
 
 
@@ -62,3 +77,29 @@ var (
   }`)
   intSchema = avro.MustParse("int")
 )
+
+
+type MessageType byte
+
+const (
+  BatchType MessageType = iota  // BatchType.$Hash
+  SubBatchHeaderType            // SubBatchHeaderType.$Hash.$BatchId
+  SubBatchMsgType               // SubBatchMsgType.$hash.$BatchId.$Index
+  BatchMsgType                  // BatchMsgType.$hash./path/
+  BatchDeleteMsgType            // BatchDeleteMsgType.$hash./path/
+)
+
+func (mt MessageType) GetKey(components ...[]byte) []byte {
+  result := []byte{byte(mt)}
+  for _, component := range components {
+    result = append(result, component...)
+  }
+  return result
+}
+
+func AvroInt(b int) []byte {
+  data, err := avro.Marshal(intSchema, b)
+  // This shouldn't occcur unless there's a mismatch between the Batch type and the avro schema, which should get caught in testing
+  if err != nil { panic(err.Error()) }
+  return data
+}

@@ -3,14 +3,20 @@ package delivery
 import (
   "math/big"
   "github.com/openrelayxyz/cardinal-types"
-  "github.com/hamba/avro"
   "strings"
   "regexp"
 )
 
+
+type batchInfo struct{
+  topic string
+  block types.Hash
+}
+
 type Producer struct {
-  schema       []regexpPair // Map prefix -> topic
-  defaultTopic string
+  schema         []regexpPair // Map prefix -> topic
+  defaultTopic   string
+  pendingBatches map[types.Hash]*batchInfo // Map batchid -> batchInfo
 }
 
 func NewProducer(defaultTopic string, schema map[string]string) (*Producer, error) {
@@ -31,7 +37,7 @@ func NewProducer(defaultTopic string, schema map[string]string) (*Producer, erro
     s[counter] = regexpPair{topic: topic, regexp: exp}
     counter++
   }
-  return &Producer{defaultTopic: defaultTopic, schema: s}, nil
+  return &Producer{defaultTopic: defaultTopic, schema: s, pendingBatches: make(map[types.Hash]*batchInfo)}, nil
 }
 
 type regexpPair struct{
@@ -56,6 +62,7 @@ func (p *Producer) AddBlock(number int64, hash, parentHash types.Hash, weight *b
     Updates: make(map[string]BatchRecord),
   }
   topicMessages := make(map[string][]Message)
+  topicMessages[p.defaultTopic] = []Message{}
   counts := make(map[string]int)
   // Create messages for udpates
   for k, v := range updates {
@@ -65,7 +72,7 @@ func (p *Producer) AddBlock(number int64, hash, parentHash types.Hash, weight *b
         if _, ok := topicMessages[r.topic]; !ok { topicMessages[r.topic] = []Message{} }
         counts[prefix]++
         topicMessages[r.topic] = append(topicMessages[r.topic], &message{
-          key: append(append([]byte{byte(BatchMsgType)}, hash.Bytes()...), []byte(k)...),
+          key: BatchMsgType.GetKey(hash.Bytes(), []byte(k)),
           value: v,
         })
         matched = true
@@ -84,7 +91,7 @@ func (p *Producer) AddBlock(number int64, hash, parentHash types.Hash, weight *b
         if _, ok := topicMessages[r.topic]; !ok { topicMessages[r.topic] = []Message{} }
         counts[prefix]++
         topicMessages[r.topic] = append(topicMessages[r.topic], &message{
-          key: append(append([]byte{byte(BatchDeleteMsgType)}, hash.Bytes()...), []byte(k)...),
+          key: BatchDeleteMsgType.GetKey(hash.Bytes(), []byte(k)),
         })
         matched = true
         break
@@ -97,27 +104,53 @@ func (p *Producer) AddBlock(number int64, hash, parentHash types.Hash, weight *b
   //Create batch messages
   for k, h := range batches {
     b.Updates[k] = BatchRecord{Subbatch: h}
+    bi := &batchInfo{
+      topic: p.defaultTopic,
+      block: hash,
+    }
+    for _, r := range p.schema {
+      if prefix := r.regexp.FindString(k); prefix != "" {
+        bi.topic = r.topic
+        break
+      }
+    }
+    p.pendingBatches[h] = bi
   }
   for k, c := range counts {
     b.Updates[k] = BatchRecord{Count: c}
   }
-  data, err := avro.Marshal(batchSchema, b)
-  // This shouldn't occcur unless there's a mismatch between the Batch type and the avro schema, which should get caught in testing
-  if err != nil { panic(err.Error()) }
-  topicMessages[p.defaultTopic] = []Message{
-    &message{
-      key: append([]byte{byte(BatchType)}, hash.Bytes()...),
-      value: data,
-    },
-  }
+  topicMessages[p.defaultTopic] = append(topicMessages[p.defaultTopic], &message{
+      key: BatchType.GetKey(hash.Bytes()),
+      value: b.EncodeAvro(),
+  })
   return topicMessages
+}
 
-
-  // type Batch struct{
-  //   Number int64          `avro:"num"`
-  //   Weight []byte          `avro:"weight"`
-  //   ParentHash types.Hash  `avro:"parent"`
-  //   Updates map[string]BatchRecord `avro:"updates"`
-  //   Hash types.Hash
-  // }
+func (p *Producer) SendBatch(batchid types.Hash, delete []string, update map[string][]byte) (map[string][]Message, error) {
+  bi, ok := p.pendingBatches[batchid]
+  if !ok { return nil, ErrUnknownBatch }
+  topicMessages := make(map[string][]Message)
+  deleteRecords := 0
+  if len(delete) > 0 { deleteRecords = 1}
+  topicMessages[bi.topic] = make([]Message, 1, len(update) + deleteRecords)
+  counter := 0
+  if deleteRecords > 0 {
+    topicMessages[bi.topic] = append(topicMessages[bi.topic], &message{
+      key: SubBatchMsgType.GetKey(bi.block.Bytes(), batchid.Bytes(), AvroInt(counter)),
+      value: (&SubBatchRecord{Delete: delete}).EncodeAvro(),
+    })
+    counter++
+  }
+  for k, v := range update {
+    topicMessages[bi.topic] = append(
+      topicMessages[bi.topic],
+      &message{
+        key: SubBatchMsgType.GetKey(bi.block.Bytes(), batchid.Bytes(), AvroInt(counter)),
+        value: (&SubBatchRecord{Updates: map[string][]byte{k: v}}).EncodeAvro(),
+      },
+    )
+    counter++
+  }
+  topicMessages[bi.topic][0] = &message{key: SubBatchHeaderType.GetKey(bi.block.Bytes(), batchid.Bytes()), value: AvroInt(counter)}
+  return topicMessages, nil
 }
