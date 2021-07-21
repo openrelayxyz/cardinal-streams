@@ -8,6 +8,7 @@ import (
   "github.com/hamba/avro"
   log "github.com/inconshreveable/log15"
   "regexp"
+  "fmt"
 )
 
 type Message interface {
@@ -42,6 +43,19 @@ func (pb *PendingBatch) Ready() bool {
   return true
 }
 
+func (pb *PendingBatch) whyNotReady() string {
+  if len(pb.PendingBatches) > 0 { return "Pending batches" }
+  for prefix, v := range pb.Prefixes {
+    if v > 0 { return fmt.Sprintf("Pending prefix '%v'", prefix) }
+  }
+  for batchid, batch := range pb.Batches {
+    for i, b := range batch {
+      if !b { fmt.Sprintf("Pending batch '%#x'[%v]", batchid, i) }
+    }
+  }
+  return "ready"
+}
+
 func (pb *PendingBatch) ApplyMessage(m Message) bool {
   switch MessageType(m.Key()[0]) {
   case SubBatchMsgType:
@@ -51,6 +65,10 @@ func (pb *PendingBatch) ApplyMessage(m Message) bool {
     if err := avro.Unmarshal(intSchema, m.Key()[65:], &idx); err != nil {
       log.Error("Failed to unmarshal index at end of key", "key", m.Key())
       return true
+    }
+    if _, ok := pb.Batches[batchid]; !ok {
+      pb.PendingMessages[string(m.Key())] = m
+      return false
     }
     if pb.Batches[batchid][idx] { return false } // Already have it, no updates
     update := &SubBatchRecord{}
@@ -197,7 +215,7 @@ func (mp *MessageProcessor) ProcessMessage(m Message) error {
     // TODO: Search pb.PendingMessages for records matching this batch
     batchid := types.BytesToHash(m.Key()[33:])
     if _, ok := mp.pendingBatches[hash].PendingBatches[batchid]; !ok { return nil } // We've already gotten this batch
-    defer delete(mp.pendingBatches[hash].PendingBatches, batchid)
+    delete(mp.pendingBatches[hash].PendingBatches, batchid)
     var counter int
     if err := avro.Unmarshal(intSchema, m.Value(), &counter); err != nil { return err }
     mp.pendingBatches[hash].Batches[batchid] = make([]bool, counter)
@@ -213,10 +231,10 @@ func (mp *MessageProcessor) ProcessMessage(m Message) error {
     }
     mp.pendingBatches[hash].ApplyMessage(m)
   }
-
-  if b := mp.pendingBatches[hash] ; b.Ready() {
+  if b, ok := mp.pendingBatches[hash] ; ok && b.Ready() {
     mp.feed.Send(b)
     mp.completed.Add(hash, struct{}{})
+    delete(mp.pendingBatches, hash)
   }
   return nil
 }
