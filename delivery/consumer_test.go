@@ -1,7 +1,6 @@
 package delivery
 
 import (
-  "bytes"
   "time"
   "testing"
   "math/big"
@@ -11,6 +10,31 @@ import (
   "regexp"
   "runtime"
 )
+
+type testResumptionMessage struct{
+  Message
+  offset int64
+  source string
+}
+
+func (r *testResumptionMessage) Offset() int64 { return r.offset }
+func (r *testResumptionMessage) Source() string { return r.source }
+
+
+
+func toTestResumptionMessage(inputs... map[string][]Message) []ResumptionMessage {
+  offsets := make(map[string]int64)
+  result := []ResumptionMessage{}
+  for _, input := range inputs {
+    for k, msgs := range input {
+      for _, msg := range msgs {
+        result = append(result, &testResumptionMessage{Message: msg, offset: offsets[k], source: k})
+        offsets[k]++
+      }
+    }
+  }
+  return result
+}
 
 
 func TestConsumer(t *testing.T) {
@@ -70,7 +94,7 @@ func TestConsumer(t *testing.T) {
   select {
   case v := <-ch:
     if v.Number != 0 { t.Errorf("Unexpected batch number") }
-    if !bytes.Equal(v.Weight, new(big.Int).Bytes()) { t.Errorf("Unexpected weight") }
+    if v.Weight.Cmp(new(big.Int)) != 0 { t.Errorf("Unexpected weight") }
     if v.ParentHash != types.HexToHash("00") { t.Errorf("Unexpected hash" ) }
     if l := len(v.Values); l != 4 { t.Errorf("Unexpected updates length; Expected 4, got %v", l)} // 2 prefixes, 1 batch, 2 changes not in schema
     if l := len(v.Deletes); l != 5 { t.Errorf("Unexpected deletes length; Expected 5, got %v", v.Deletes)} // 2 prefixes, 1 batch, 2 changes not in schema
@@ -84,7 +108,7 @@ func TestConsumer(t *testing.T) {
   }
 }
 
-func getTestMessages(t *testing.T, blockCount int) []Message {
+func getTestMessages(t *testing.T, blockCount int) []ResumptionMessage {
   p, err := NewProducer(
     "default",
     map[string]string{
@@ -94,12 +118,12 @@ func getTestMessages(t *testing.T, blockCount int) []Message {
     },
   )
   if err != nil { t.Errorf(err.Error()) }
-  msgList := []Message{}
+  msgs := []map[string][]Message{}
   for i := 1; i <= blockCount ; i++ {
     blockHash := types.BytesToHash([]byte{byte(i)})
     parentHash := types.BytesToHash([]byte{byte(i-1)})
     batchid := types.BytesToHash([]byte{255, byte(i-1)})
-    msgs, err := p.AddBlock(
+    m, err := p.AddBlock(
       int64(i),
       blockHash,
       parentHash,
@@ -119,17 +143,12 @@ func getTestMessages(t *testing.T, blockCount int) []Message {
       },
     )
     if err != nil { t.Fatalf(err.Error()) }
-    for _, topicMsgs := range msgs {
-      msgList = append(msgList, topicMsgs...)
-    }
-
-    msgs, err = p.SendBatch(batchid, []string{"whatever/", "other/"}, map[string][]byte{"state/thing": []byte("thing!")})
+    msgs = append(msgs, m)
+    m, err = p.SendBatch(batchid, []string{"whatever/", "other/"}, map[string][]byte{"state/thing": []byte("thing!")})
     if err != nil { t.Fatalf(err.Error()) }
-    for _, topicMsgs := range msgs {
-      msgList = append(msgList, topicMsgs...)
-    }
+    msgs = append(msgs, m)
   }
-  return msgList
+  return toTestResumptionMessage(msgs...)
 }
 
 func TestShuffled(t *testing.T) {
@@ -147,7 +166,7 @@ func TestShuffled(t *testing.T) {
   select {
   case v := <-ch:
     if v.Number != 1 { t.Errorf("Unexpected batch number") }
-    if !bytes.Equal(v.Weight, new(big.Int).Bytes()) { t.Errorf("Unexpected weight") }
+    if v.Weight.Cmp(new(big.Int)) != 0 { t.Errorf("Unexpected weight") }
     if v.ParentHash != types.HexToHash("00") { t.Errorf("Unexpected hash" ) }
     if l := len(v.Values); l != 4 { t.Errorf("Unexpected updates length; Expected 4, got %v", l)} // 2 prefixes, 1 batch, 2 changes not in schema
     if l := len(v.Deletes); l != 5 { t.Errorf("Unexpected deletes length; Expected 5, got %v", v.Deletes)} // 2 prefixes, 1 batch, 2 changes not in schema
@@ -178,7 +197,7 @@ func TestShuffledDups(t *testing.T) {
   select {
   case v := <-ch:
     if v.Number != 1 { t.Errorf("Unexpected batch number") }
-    if !bytes.Equal(v.Weight, new(big.Int).Bytes()) { t.Errorf("Unexpected weight") }
+    if v.Weight.Cmp(new(big.Int)) != 0 { t.Errorf("Unexpected weight") }
     if v.ParentHash != types.HexToHash("00") { t.Errorf("Unexpected hash" ) }
     if l := len(v.Values); l != 4 { t.Errorf("Unexpected updates length; Expected 4, got %v", l)} // 2 prefixes, 1 batch, 2 changes not in schema
     if l := len(v.Deletes); l != 5 { t.Errorf("Unexpected deletes length; Expected 5, got %v", v.Deletes)} // 2 prefixes, 1 batch, 2 changes not in schema

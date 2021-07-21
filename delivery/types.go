@@ -103,3 +103,14 @@ func AvroInt(b int) []byte {
   if err != nil { panic(err.Error()) }
   return data
 }
+
+type Message interface {
+  Key() []byte
+  Value() []byte
+}
+
+type ResumptionMessage interface{
+  Message
+  Offset() int64
+  Source() string
+}

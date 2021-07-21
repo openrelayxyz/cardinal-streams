@@ -1,6 +1,7 @@
 package delivery
 
 import (
+  "math/big"
   "path"
   "strings"
   "github.com/hashicorp/golang-lru"
@@ -11,14 +12,9 @@ import (
   "fmt"
 )
 
-type Message interface {
-  Key() []byte
-  Value() []byte
-}
-
 type PendingBatch struct {
   Number int64
-  Weight []byte
+  Weight *big.Int
   ParentHash types.Hash
   Hash types.Hash
   Values map[string][]byte
@@ -123,6 +119,13 @@ type prefixBatch struct {
   batch *PendingBatch
 }
 
+// MessageProcessor aggregates messages and emits completed blocks. Messages
+// will be discarded if their blocks are older than lastEmittedNum -
+// reorgThreshold, but otherwise the will be emitted in the order they are
+// completed, even if they are older than the initial block or there are gaps
+// between the last emitted block and this one. Subsequent layers will be used
+// to ensure blocks are emitted in something resembling a sensible order and
+// that reorgs are handled.
 type MessageProcessor struct {
   lastEmittedNum  int64
   reorgThreshold  int64
@@ -134,6 +137,11 @@ type MessageProcessor struct {
   feed            types.Feed
 }
 
+// NewMessageProcessor instantiates a MessageProcessor. lastEmittedNum should
+// indicate the last block number processed by this system for resumption.
+// Blocks older than lastEmittedNum - reorgThreshold will be discarded.
+// trackedPrefixes is a list of regular expressions indicating which messages
+// are of interest to this consumer - use '.*' to get all messages.
 func NewMessageProcessor(lastEmittedNum int64, reorgThreshold int64, trackedPrefixes []*regexp.Regexp) *MessageProcessor {
   cache, err := lru.New(int(2 * reorgThreshold))
   if err != nil { panic(err.Error()) }
@@ -148,10 +156,12 @@ func NewMessageProcessor(lastEmittedNum int64, reorgThreshold int64, trackedPref
   }
 }
 
+// Subscribe to pending batches.
 func (mp *MessageProcessor) Subscribe(ch chan<- *PendingBatch) types.Subscription {
   return mp.feed.Subscribe(ch)
 }
 
+// ProcessMessage takes in messages and assembles completed blocks of messages.
 func (mp *MessageProcessor) ProcessMessage(m Message) error {
   hash := types.BytesToHash(m.Key()[1:33])
   if mp.completed.Contains(hash) { return nil }   // We've recently emitted this block
@@ -171,7 +181,7 @@ func (mp *MessageProcessor) ProcessMessage(m Message) error {
     }
     mp.pendingBatches[hash] = &PendingBatch{
       Number: b.Number,
-      Weight: b.Weight,
+      Weight: new(big.Int).SetBytes(b.Weight),
       ParentHash: b.ParentHash,
       Hash: hash,
       Values: make(map[string][]byte),
@@ -233,6 +243,7 @@ func (mp *MessageProcessor) ProcessMessage(m Message) error {
   }
   if b, ok := mp.pendingBatches[hash] ; ok && b.Ready() {
     mp.feed.Send(b)
+    mp.lastEmittedNum = b.Number
     mp.completed.Add(hash, struct{}{})
     delete(mp.pendingBatches, hash)
   }
@@ -244,6 +255,3 @@ func (mp *MessageProcessor) queueMessage(hash types.Hash, m Message) {
   if _, ok := mp.pendingMessages[hash]; !ok { mp.pendingMessages[hash] = make(map[string]Message) }
   mp.pendingMessages[hash][string(m.Key())] = m
 }
-
-
-// TODO: In the producer, enforce that no prefix can be the prefix to another prefix.
