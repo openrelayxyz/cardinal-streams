@@ -156,3 +156,11 @@ func (p *Producer) SendBatch(batchid types.Hash, delete []string, update map[str
   topicMessages[bi.topic][0] = &message{key: SubBatchHeaderType.GetKey(bi.block.Bytes(), batchid.Bytes()), value: AvroInt(counter)}
   return topicMessages, nil
 }
+
+
+// Reorg should be called for large reorgs (> reorgThreshold). The number and
+// hash should correspond to the common ancestor between the two reorged
+// chains.
+func (p *Producer) Reorg(number int64, hash types.Hash) Message {
+  return &message{key: ReorgType.GetKey(hash.Bytes()), value: AvroInt(int(number))}
+}

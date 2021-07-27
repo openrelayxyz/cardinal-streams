@@ -87,6 +87,7 @@ const (
   SubBatchMsgType               // SubBatchMsgType.$hash.$BatchId.$Index
   BatchMsgType                  // BatchMsgType.$hash./path/
   BatchDeleteMsgType            // BatchDeleteMsgType.$hash./path/
+  ReorgType                     // ReorgType.$Hash
 )
 
 func (mt MessageType) GetKey(components ...[]byte) []byte {

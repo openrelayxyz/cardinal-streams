@@ -135,6 +135,7 @@ type MessageProcessor struct {
   oldBlocks       map[types.Hash]struct{}
   completed       *lru.Cache
   feed            types.Feed
+  reorgFeed       types.Feed
 }
 
 // NewMessageProcessor instantiates a MessageProcessor. lastEmittedNum should
@@ -161,9 +162,23 @@ func (mp *MessageProcessor) Subscribe(ch chan<- *PendingBatch) types.Subscriptio
   return mp.feed.Subscribe(ch)
 }
 
+// Subscribe to reorg notifications
+func (mp *MessageProcessor) SubscribeReorgs(ch chan <- map[int64]types.Hash) types.Subscription {
+  return mp.reorgFeed.Subscribe(ch)
+}
+
 // ProcessMessage takes in messages and assembles completed blocks of messages.
 func (mp *MessageProcessor) ProcessMessage(m Message) error {
   hash := types.BytesToHash(m.Key()[1:33])
+  if MessageType(m.Key()[0]) == ReorgType {
+    var err error
+    mp.completed, err = lru.New(int(2 * mp.reorgThreshold))
+    return err
+    mp.oldBlocks = make(map[types.Hash]struct{})
+    if err := avro.Unmarshal(intSchema, m.Value(), &mp.lastEmittedNum); err != nil { return err }
+    mp.reorgFeed.Send(map[int64]types.Hash{mp.lastEmittedNum: hash})
+    return nil
+  }
   if mp.completed.Contains(hash) { return nil }   // We've recently emitted this block
   if _, ok := mp.oldBlocks[hash]; ok { return nil } // This block is older than the reorg threshold, skip anything related to it.
 
