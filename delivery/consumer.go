@@ -19,18 +19,31 @@ type PendingBatch struct {
   Hash types.Hash
   Values map[string][]byte
   Deletes map[string]struct{}
-  Prefixes map[string]int
-  Batches map[types.Hash][]bool
-  PendingBatches map[types.Hash]struct{}
-  PendingMessages map[string]Message // Key -> Message
+  resumption map[string]int64
+  prefixes map[string]int
+  batches map[types.Hash][]bool
+  pendingBatches map[types.Hash]struct{}
+  pendingMessages map[string]ResumptionMessage // Key -> Message
+}
+
+func (pb *PendingBatch) Resumption() string {
+  result := make([]string, 0, len(pb.resumption))
+  for k, v := range pb.resumption {
+    result = append(result, fmt.Sprintf("%v=%v", k, v))
+  }
+  return strings.Join(result, ";")
+}
+
+func (pb *PendingBatch) updateResumption(source string, offset int64) {
+  if o, ok := pb.resumption[source]; !ok || o > offset { pb.resumption[source] = offset }
 }
 
 func (pb *PendingBatch) Ready() bool {
-  if len(pb.PendingBatches) > 0 { return false }
-  for _, v := range pb.Prefixes {
+  if len(pb.pendingBatches) > 0 { return false }
+  for _, v := range pb.prefixes {
     if v > 0 { return false }
   }
-  for _, batch := range pb.Batches {
+  for _, batch := range pb.batches {
     for _, b := range batch {
       if !b { return false }
     }
@@ -40,11 +53,11 @@ func (pb *PendingBatch) Ready() bool {
 }
 
 func (pb *PendingBatch) whyNotReady() string {
-  if len(pb.PendingBatches) > 0 { return "Pending batches" }
-  for prefix, v := range pb.Prefixes {
+  if len(pb.pendingBatches) > 0 { return "Pending batches" }
+  for prefix, v := range pb.prefixes {
     if v > 0 { return fmt.Sprintf("Pending prefix '%v'", prefix) }
   }
-  for batchid, batch := range pb.Batches {
+  for batchid, batch := range pb.batches {
     for i, b := range batch {
       if !b { fmt.Sprintf("Pending batch '%#x'[%v]", batchid, i) }
     }
@@ -52,7 +65,8 @@ func (pb *PendingBatch) whyNotReady() string {
   return "ready"
 }
 
-func (pb *PendingBatch) ApplyMessage(m Message) bool {
+func (pb *PendingBatch) ApplyMessage(m ResumptionMessage) bool {
+  pb.updateResumption(m.Source(), m.Offset())
   switch MessageType(m.Key()[0]) {
   case SubBatchMsgType:
     // SubBatchMsgType.$hash.$BatchId.$Index
@@ -62,11 +76,11 @@ func (pb *PendingBatch) ApplyMessage(m Message) bool {
       log.Error("Failed to unmarshal index at end of key", "key", m.Key())
       return true
     }
-    if _, ok := pb.Batches[batchid]; !ok {
-      pb.PendingMessages[string(m.Key())] = m
+    if _, ok := pb.batches[batchid]; !ok {
+      pb.pendingMessages[string(m.Key())] = m
       return false
     }
-    if pb.Batches[batchid][idx] { return false } // Already have it, no updates
+    if pb.batches[batchid][idx] { return false } // Already have it, no updates
     update := &SubBatchRecord{}
     if err := avro.Unmarshal(updateSchema, m.Value(), &update); err != nil {
       log.Error("Failed to unmarshal update record", "key", m.Key(), "value", m.Value())
@@ -74,7 +88,7 @@ func (pb *PendingBatch) ApplyMessage(m Message) bool {
     }
     for _, k := range update.Delete { pb.Deletes[k] = struct{}{} }
     for k, v := range update.Updates { pb.Values[k] = v }
-    pb.Batches[batchid][idx] = true
+    pb.batches[batchid][idx] = true
     return true
   case BatchMsgType:
     path := string(m.Key()[33:])
@@ -83,7 +97,7 @@ func (pb *PendingBatch) ApplyMessage(m Message) bool {
       pb.Values[path] = m.Value()
       return true
     }
-    pb.PendingMessages[string(m.Key())] = m
+    pb.pendingMessages[string(m.Key())] = m
     return false
   case BatchDeleteMsgType:
     path := string(m.Key()[33:])
@@ -92,7 +106,7 @@ func (pb *PendingBatch) ApplyMessage(m Message) bool {
       pb.Deletes[path] = struct{}{}
       return true
     }
-    pb.PendingMessages[string(m.Key())] = m
+    pb.pendingMessages[string(m.Key())] = m
     return false
   default:
     log.Warn("Unknown message type", "id", m.Key()[0], "key", m.Key(), "val", m.Value())
@@ -103,8 +117,8 @@ func (pb *PendingBatch) ApplyMessage(m Message) bool {
 func (pb *PendingBatch) DecPrefixCounter(p string) bool {
   for d := p; d != ""; d = path.Dir(d) {
     k := strings.TrimPrefix(d, "/") + "/"
-    if v, ok := pb.Prefixes[k]; ok && v > 0 {
-      pb.Prefixes[k]--
+    if v, ok := pb.prefixes[k]; ok && v > 0 {
+      pb.prefixes[k]--
       return true
     } else if ok && v == 0 {
       log.Error("Got a prefix match with none expected to remain. This message will likely fail to reconstruct.", "path", p, "prefix", k)
@@ -130,7 +144,7 @@ type MessageProcessor struct {
   lastEmittedNum  int64
   reorgThreshold  int64
   pendingBatches  map[types.Hash]*PendingBatch
-  pendingMessages map[types.Hash]map[string]Message
+  pendingMessages map[types.Hash]map[string]ResumptionMessage
   trackedPrefixes []*regexp.Regexp
   oldBlocks       map[types.Hash]struct{}
   completed       *lru.Cache
@@ -152,7 +166,7 @@ func NewMessageProcessor(lastEmittedNum int64, reorgThreshold int64, trackedPref
     trackedPrefixes: trackedPrefixes,
     completed: cache,
     pendingBatches:  make(map[types.Hash]*PendingBatch),
-    pendingMessages: make(map[types.Hash]map[string]Message),
+    pendingMessages: make(map[types.Hash]map[string]ResumptionMessage),
     oldBlocks:       make(map[types.Hash]struct{}),
   }
 }
@@ -168,7 +182,7 @@ func (mp *MessageProcessor) SubscribeReorgs(ch chan <- map[int64]types.Hash) typ
 }
 
 // ProcessMessage takes in messages and assembles completed blocks of messages.
-func (mp *MessageProcessor) ProcessMessage(m Message) error {
+func (mp *MessageProcessor) ProcessMessage(m ResumptionMessage) error {
   hash := types.BytesToHash(m.Key()[1:33])
   if MessageType(m.Key()[0]) == ReorgType {
     var err error
@@ -201,11 +215,13 @@ func (mp *MessageProcessor) ProcessMessage(m Message) error {
       Hash: hash,
       Values: make(map[string][]byte),
       Deletes: make(map[string]struct{}),
-      Prefixes: make(map[string]int),
-      Batches: make(map[types.Hash][]bool),
-      PendingBatches: make(map[types.Hash]struct{}),
-      PendingMessages: make(map[string]Message),
+      prefixes: make(map[string]int),
+      batches: make(map[types.Hash][]bool),
+      pendingBatches: make(map[types.Hash]struct{}),
+      pendingMessages: make(map[string]ResumptionMessage),
+      resumption: make(map[string]int64),
     }
+    mp.pendingBatches[hash].updateResumption(m.Source(), m.Offset())
     for prefix, update := range b.Updates {
       // log.Info("Batch update:", "prefix", prefix, "count", update.Count, "sb", update.Subbatch)
       match := false
@@ -219,10 +235,10 @@ func (mp *MessageProcessor) ProcessMessage(m Message) error {
       if len(update.Value) > 0 { mp.pendingBatches[hash].Values[prefix] = update.Value }
       if update.Delete { mp.pendingBatches[hash].Deletes[prefix] = struct{}{} }
       if update.Count != 0 {
-        mp.pendingBatches[hash].Prefixes[prefix] = update.Count
+        mp.pendingBatches[hash].prefixes[prefix] = update.Count
       }
       if update.Subbatch != (types.Hash{}) {
-        mp.pendingBatches[hash].PendingBatches[update.Subbatch] = struct{}{}
+        mp.pendingBatches[hash].pendingBatches[update.Subbatch] = struct{}{}
       }
     }
     if _, ok := mp.pendingMessages[hash]; ok {
@@ -237,16 +253,17 @@ func (mp *MessageProcessor) ProcessMessage(m Message) error {
       mp.queueMessage(hash, m)
       return nil
     }
-    // TODO: Search pb.PendingMessages for records matching this batch
+    // TODO: Search pb.pendingMessages for records matching this batch
     batchid := types.BytesToHash(m.Key()[33:])
-    if _, ok := mp.pendingBatches[hash].PendingBatches[batchid]; !ok { return nil } // We've already gotten this batch
-    delete(mp.pendingBatches[hash].PendingBatches, batchid)
+    if _, ok := mp.pendingBatches[hash].pendingBatches[batchid]; !ok { return nil } // We've already gotten this batch
+    delete(mp.pendingBatches[hash].pendingBatches, batchid)
     var counter int
     if err := avro.Unmarshal(intSchema, m.Value(), &counter); err != nil { return err }
-    mp.pendingBatches[hash].Batches[batchid] = make([]bool, counter)
-    for k, msg := range mp.pendingBatches[hash].PendingMessages {
+    mp.pendingBatches[hash].batches[batchid] = make([]bool, counter)
+    mp.pendingBatches[hash].updateResumption(m.Source(), m.Offset())
+    for k, msg := range mp.pendingBatches[hash].pendingMessages {
       if mp.pendingBatches[hash].ApplyMessage(msg) {
-        delete(mp.pendingBatches[hash].PendingMessages, k)
+        delete(mp.pendingBatches[hash].pendingMessages, k)
       }
     }
   default:
@@ -266,7 +283,7 @@ func (mp *MessageProcessor) ProcessMessage(m Message) error {
 }
 
 
-func (mp *MessageProcessor) queueMessage(hash types.Hash, m Message) {
-  if _, ok := mp.pendingMessages[hash]; !ok { mp.pendingMessages[hash] = make(map[string]Message) }
+func (mp *MessageProcessor) queueMessage(hash types.Hash, m ResumptionMessage) {
+  if _, ok := mp.pendingMessages[hash]; !ok { mp.pendingMessages[hash] = make(map[string]ResumptionMessage) }
   mp.pendingMessages[hash][string(m.Key())] = m
 }

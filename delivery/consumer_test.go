@@ -71,24 +71,22 @@ func TestConsumer(t *testing.T) {
   ch := make(chan *PendingBatch, 5)
   sub := mp.Subscribe(ch)
   defer sub.Unsubscribe()
-  for _, msgList := range msgs{
-    for _, msg := range msgList {
-      if err := mp.ProcessMessage(msg); err != nil { t.Errorf(err.Error()) }
-    }
+  msgList := toTestResumptionMessage(msgs)
+  for _, msg := range msgList {
+    if err := mp.ProcessMessage(msg); err != nil { t.Errorf(err.Error()) }
   }
   runtime.Gosched()
   select {
   case v := <-ch:
-    t.Errorf("Expected nothing on channel yet, got %v, %v, %v", v.PendingBatches, v.Prefixes, v.Batches)
+    t.Errorf("Expected nothing on channel yet, got %v, %v, %v", v.pendingBatches, v.prefixes, v.batches)
   default:
   }
 
   msgs, err = p.SendBatch(types.HexToHash("ff"), []string{"whatever/", "other/"}, map[string][]byte{"state/thing": []byte("thing!")})
   if err != nil { t.Fatalf(err.Error()) }
-  for _, msgList := range msgs{
-    for _, msg := range msgList {
-      if err := mp.ProcessMessage(msg); err != nil { t.Errorf(err.Error()) }
-    }
+  msgList = toTestResumptionMessage(msgs)
+  for _, msg := range msgList {
+    if err := mp.ProcessMessage(msg); err != nil { t.Errorf(err.Error()) }
   }
   runtime.Gosched()
   select {
