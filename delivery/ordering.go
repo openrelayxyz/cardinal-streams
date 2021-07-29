@@ -7,11 +7,11 @@ import (
   "github.com/openrelayxyz/cardinal-types"
   "github.com/hashicorp/golang-lru"
   log "github.com/inconshreveable/log15"
+  "time"
 )
 
 type OrderedMessageProcessor struct {
   mp *MessageProcessor
-  // lastNumber     int64
   lastHash       types.Hash
   lastWeight     *big.Int
   reorgThreshold int64
@@ -27,7 +27,6 @@ type OrderedMessageProcessor struct {
 func NewOrderedMessageProcessor(lastNumber int64, lastHash types.Hash, lastWeight *big.Int, reorgThreshold int64, trackedPrefixes []*regexp.Regexp) (*OrderedMessageProcessor, error) {
   omp := &OrderedMessageProcessor{
     mp: NewMessageProcessor(lastNumber, reorgThreshold, trackedPrefixes),
-    // lastNumber: lastNumber,
     lastHash: lastHash,
     lastWeight: lastWeight,
     reorgThreshold: reorgThreshold,
@@ -40,6 +39,7 @@ func NewOrderedMessageProcessor(lastNumber int64, lastHash types.Hash, lastWeigh
     hash := k.(types.Hash)
     omp.evict(hash)
   })
+  omp.finished.Add(lastHash, struct{}{})
   ch := make(chan *PendingBatch, 100)
   reorgCh := make(chan map[int64]types.Hash, 100)
   sub := omp.mp.Subscribe(ch)
@@ -58,10 +58,17 @@ func NewOrderedMessageProcessor(lastNumber int64, lastHash types.Hash, lastWeigh
         log.Error("Subscription error", "err", err.Error())
       case err := <-reorgSub.Err():
         log.Error("Reorg subscription error", "err", err.Error())
-      case <-omp.quit:
-        sub.Unsubscribe()
-        reorgSub.Unsubscribe()
-        return
+      case <-time.After(250 * time.Millisecond):
+        // If we've gone 250ms without any messages, see if there's a quit
+        // message. This ensures we don't quit until we're done processing,
+        // without busy waiting on the quit channel.
+        select {
+        case <-omp.quit:
+          sub.Unsubscribe()
+          reorgSub.Unsubscribe()
+          return
+        default:
+        }
       }
     }
   }()
@@ -102,17 +109,33 @@ func (omp *OrderedMessageProcessor) HandlePendingBatch(pb *PendingBatch) {
   } else if pb.ParentHash == omp.lastHash {
     // Emit now
     omp.prepareEmit([]*PendingBatch{pb}, []*PendingBatch{})
-  } else if omp.finished.Contains(pb.ParentHash) && pb.Weight.Cmp(omp.lastWeight) > 0 {
-    // Evaluate Reorg
-    added, removed, err := omp.prepareReorg(pb, omp.pending[omp.lastHash])
-    if err != nil {
-      log.Error("Error finding common ancestor", "new", pb.Hash, "old", omp.lastHash, "error", err)
+    return
+  } else if omp.finished.Contains(pb.ParentHash) {
+    if pb.Weight.Cmp(omp.lastWeight) > 0 {
+      // Evaluate Reorg
+      removed, added, err := omp.prepareReorg(pb, omp.pending[omp.lastHash])
+      if err != nil {
+        log.Error("Error finding common ancestor", "new", pb.Hash, "old", omp.lastHash, "error", err)
+        return
+      }
+      omp.prepareEmit(added, removed)
       return
     }
-    omp.prepareEmit(added, removed)
+    omp.finished.Add(pb.Hash, struct{}{})
+    if child, ok := omp.getPendingChild(pb.Hash); ok {
+      // log.Debug("Weight does not justify reorg, but child is available", "child", child)
+      // This block's child is already pending, process it instead
+      omp.HandlePendingBatch(omp.pending[child])
+      return
+    }
   } else {
+    if pb.Weight.Cmp(omp.lastWeight) < 0 {
+      // If the weight is less than the latest data, we can consider it
+      // finished so that we can reorg back to it and it will eventuall get
+      // evicted
+      omp.finished.Add(pb.Hash, struct{}{})
+    }
     // Queue for potential later use
-    omp.finished.Add(pb.Hash, struct{}{}) // This will cause it to be evicted eventually if it never gets reorged in
     if _, ok := omp.queued[pb.ParentHash]; !ok { omp.queued[pb.ParentHash] = make(map[types.Hash]struct{}) }
     omp.queued[pb.ParentHash][pb.Hash] = struct{}{}
   }
@@ -124,7 +147,6 @@ func (omp *OrderedMessageProcessor) HandleReorg(num int64, hash types.Hash) {
   omp.reorgFeed.Send(map[int64]types.Hash{num: hash})
 }
 
-
 func (omp *OrderedMessageProcessor) prepareEmit(new, old []*PendingBatch) {
   if len(new) > 0 {
     newest := new[len(new) - 1]
@@ -132,7 +154,6 @@ func (omp *OrderedMessageProcessor) prepareEmit(new, old []*PendingBatch) {
     omp.lastWeight = newest.Weight
     omp.finishSiblings(newest)
     omp.finished.Add(newest.Hash, struct{}{})
-    // omp.lastNumber = newest.Number
   }
   for hash, ok := omp.getPendingChild(omp.lastHash); ok; hash, ok = omp.getPendingChild(omp.lastHash) {
     pb := omp.pending[hash]
@@ -165,7 +186,9 @@ func (omp *OrderedMessageProcessor) finishPendingChildren(hash types.Hash) {
 // chain of descendants.
 func (omp *OrderedMessageProcessor) getPendingChild(hash types.Hash) (types.Hash, bool) {
   children, ok := omp.queued[hash]
-  if !ok { return types.Hash{}, ok }
+  if !ok {
+    return types.Hash{}, ok
+  }
   max := new(big.Int)
   var maxChild types.Hash
   for child := range children {
@@ -223,6 +246,11 @@ func (omp *OrderedMessageProcessor) prepareReorg(newHead, oldHead *PendingBatch)
 func (omp *OrderedMessageProcessor) ProcessMessage(m ResumptionMessage) error {
   return omp.mp.ProcessMessage(m)
 }
+
 func (omp *OrderedMessageProcessor) Close() {
-  close(omp.quit)
+  select {
+  case omp.quit <- struct{}{}:
+  case <-time.After(time.Second):
+    log.Warn("Closing message processor not complete after 1 second")
+  }
 }
