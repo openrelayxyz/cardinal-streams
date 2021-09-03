@@ -17,7 +17,7 @@ type OrderedMessageProcessor struct {
   reorgThreshold int64
   pending        map[types.Hash]*PendingBatch
   queued         map[types.Hash]map[types.Hash]struct{}
-  finished       *lru.Cache // TODO: add an eviction function to remove from pending / queued when dropped
+  finished       *lru.Cache
   quit           chan struct{}
   updateFeed     types.Feed
   reorgFeed      types.Feed
