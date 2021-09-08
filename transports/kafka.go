@@ -6,14 +6,33 @@ import (
   "github.com/Shopify/sarama"
   "github.com/openrelayxyz/cardinal-types"
   "github.com/openrelayxyz/cardinal-streams/delivery"
+  "github.com/openrelayxyz/drumline"
   log "github.com/inconshreveable/log15"
   coreLog "log"
   "net/url"
   "strings"
   "strconv"
+  "sync"
   "time"
   "os"
 )
+
+type KafkaResumptionMessage struct {
+  msg *sarama.ConsumerMessage
+}
+
+func (m *KafkaResumptionMessage) Offset() int64 {
+  return m.msg.Offset
+}
+func (m *KafkaResumptionMessage) Source() string {
+  return fmt.Sprintf("%v:%v", m.msg.Topic, m.msg.Partition)
+}
+func (m *KafkaResumptionMessage) Key() []byte {
+  return m.msg.Key
+}
+func (m *KafkaResumptionMessage) Value() []byte {
+  return m.msg.Value
+}
 
 func ParseKafkaURL(brokerURL string) ([]string, *sarama.Config) {
   parsedURL, _ := url.Parse("kafka://" + brokerURL)
@@ -225,8 +244,11 @@ func (kp *KafkaProducer) Reorg(number int64, hash types.Hash) (func(), error) {
   msg := kp.dp.Reorg(number, hash)
   oldReorgTopic := kp.reorgTopic
   kp.reorgTopic = fmt.Sprintf("%s-re-%x",  kp.defaultTopic, hash.Bytes())
-  done := func() { kp.reorgTopic = oldReorgTopic }
-  if err := CreateTopicIfDoesNotExist(kp.brokerURL, kp.reorgTopic, -1, nil); err != nil {
+  done := func() {
+    kp.emit(kp.reorgTopic, kp.dp.ReorgDone(number, hash))
+    kp.reorgTopic = oldReorgTopic
+  }
+  if err := CreateTopicIfDoesNotExist(kp.brokerURL, kp.reorgTopic, 1, nil); err != nil {
     done()
     return func() {}, err
   }
@@ -234,5 +256,232 @@ func (kp *KafkaProducer) Reorg(number int64, hash types.Hash) (func(), error) {
     done()
     return func(){}, err
   }
+  kp.emit(kp.reorgTopic, msg)
   return done, nil
+}
+
+
+// LatestBlockFromFeed scans the feed the producer is configured for and finds
+// the latest block number. This should be used once on startup, and is
+// intended to allow producers to sync to a particular block before the begin
+// emitting messages. Producers should start emitting when they reach this
+// number, to avoid skipped blocks (which will hault consumers). Producer
+// applications should provide some kind of override, resuming at a block
+// specified by an operator in case messages are needed to start on the correct
+// side of a reorg while the feed has messages from a longer but invalid chain.
+func (kp *KafkaProducer) LatestBlockFromFeed() (int64, error) {
+  brokerList, config := ParseKafkaURL(brokerAddr)
+  client, err := sarama.NewClient(brokerList, config)
+  if err != nil { return 0, err }
+  consumer, err := sarama.NewConsumerFromClient(client)
+  if err != nil { return 0, err }
+  partitions, err := consumer.Partitions(topic)
+  if err != nil { return 0, err }
+  hwm := consumer.HighWaterMarks()
+  var highestNumber int64
+  for i, partid := range partitions {
+    offset := hwm[kp.defaultTopic][partid]
+    offset -= 100
+    if offset < 0 { offset = sarama.OffsetOldest }
+    pc, err := consumer.ConsumePartition(topic, partid, offset)
+    if err != nil {
+      pc, err = consumer.ConsumePartition(topic, partid, srama.OffsetOldest)
+      if err != nil { return 0, err }
+    }
+    for input := range pc.Messages() {
+      if pc.HighWaterMarkOffset() - input.Offset <= 1 {
+        pc.AsyncClose()
+      }
+      if delivery.MessageType(input.Key[0]) == delivery.BatchMsgType {
+        b, err := delivery.UnmarshalBatch(input.Value)
+        if err != nil { continue }
+        if b.Number > highestNumber { highestNumber = b.Number }
+      }
+    }
+  }
+  return highestNumber, nil
+}
+
+
+type KafkaConsumer struct{
+  omp          *delivery.OrderedMessageProcessor
+  quit         chan struct{}
+  ready        chan struct{}
+  brokerURL    string
+  defaultTopic string
+  topics       []string
+  resumption   map[string]int64
+  startOffsets map[string]int64
+  client       sarama.Client
+  rollback     int64
+  shutdownWg   sync.WaitGroup
+  isReorg      bool
+}
+
+
+func (kc *KafkaConsumer) Start() error {
+  dl := drumline.NewDrumline(4000)
+  consumer, err := sarama.NewConsumerFromClient(kc.client)
+  if err != nil { return err }
+  var readyWg, warmupWg, reorgWg sync.WaitGroup
+  messages := make(chan *sarama.ConsumerMessage, 512) // 512 is arbitrary. Worked for Flume, but may require tuning for Cardinal
+  partitionConsumers := []sarama.PartitionConsumer{}
+  for _, topic := range kc.topics {
+    partitions, err := consumer.Partitions(topic)
+    if err != nil { return err }
+    for _, partid := range partitions {
+      readyWg.Add(1)
+      warmupWg.Add(1)
+      k := fmt.Sprintf("%v:%v", topic, )
+      offset, ok := kc.resumption[k]
+      var startOffset int64
+      if !ok {
+        offset = sarama.OffsetOldest
+        startOffset = offset
+      } else {
+        startOffset = offset - kc.rollback
+      }
+      pc, err := consumer.ConsumePartition(topic, partid, startOffset)
+      if err != nil {
+        pc, err = consumer.ConsumePartition(topic, partid, offset)
+        if err != nil { return err }
+        startOffset = offset
+      }
+      go func(pc sarama.PartitionConsumer, startOffset int64, i int) {
+        var once sync.Once
+        warm := false
+        for input := range pc.Messages() {
+          if !warm && input.Offset >= startOffset {
+            // Once we're caught up with the startup offsets, wait until the
+            // other partition consumers are too before continuing.
+            warmupWg.Done()
+            warmupWg.Wait()
+            warm = true
+          }
+          if kc.ready != nil {
+            if pc.HighWaterMarkOffset() - input.Offset <= 1 {
+              // Once we're caught up with the high watermark, let the ready
+              // channel know
+              once.Do(readyWg.Done)
+            }
+            dl.Step(i)
+          }
+          messages <- input
+        }
+      }(pc, startOffset, len(partitionConsumers))
+      partitionConsumers = append(partitionConsumers, pc)
+    }
+  }
+  var readych chan time.Time
+  readyWaiter := func() <-chan time.Time  {
+    // If readych isn't ready to receive, use it as the sender, eliminating any
+    // possibility that this case will trigger, and avoiding the creation of
+    // any timer objects that will have to get cleaned up when we don't need
+    // them.
+    if readych == nil { return readych }
+    // Only if the readych is ready to receive should this return a timer, as
+    // the timer will have to be created, run its course, and get cleaned up,
+    // which adds overhead
+    return time.After(time.Second)
+  }
+  go func(wg, reorgWg *sync.WaitGroup) {
+    // Wait until all partition consumers are up to the high water mark and alert the ready channel
+    wg.Wait()
+    reorgWg.Wait()
+    readych = make(chan time.Time)
+    <-readych
+    readych = nil
+    kc.ready <- struct{}{}
+    kc.ready = nil
+    dl.Close()
+  }(&readyWg, &reorgWg)
+  go func() {
+    for {
+      select {
+      case input, ok := <-messages:
+        if !ok {
+          kc.shutdownWg.Done()
+          return
+        }
+        msg := &KafkaResumptionMessage{input}
+        switch delivery.MessageType(msg.Key()[0]) {
+        case delivery.ReorgType:
+          if !kc.isReorg{
+            rekc := &KafkaConsumer{
+              omp: kc.omp,
+              quit: make(chan struct{}),
+              ready: make(chan struct{}),
+              brokerURL: kc.brokerURL,
+              topics: []string{fmt.Sprintf("%s-re-%x",  kc.defaultTopic, msg.Key()[1:])},
+              resumption: make(map[string]int64),
+              startOffsets: make(map[string]int64),
+              client: kc.client,
+            }
+            rekc.Start()
+            <-rekc.Ready()
+            rekc.Close()
+          } else {
+            reorgWg.Add(1)
+            if err := kc.omp.ProcessMessage(msg); err != nil {
+              log.Error("Error processing input:", "err", err, "key", input.Key, "msg", input.Value, "part", input.Partition, "offset", input.Offset)
+              continue
+            }
+          }
+        case delivery.ReorgCompleteType:
+          reorgWg.Done()
+        default:
+          if err := kc.omp.ProcessMessage(msg); err != nil {
+            log.Error("Error processing input:", "err", err, "key", input.Key, "msg", input.Value, "part", input.Partition, "offset", input.Offset)
+            continue
+          }
+        }
+      case <-dl.Reset(5 * time.Second):
+        // Reset the drumline if we got no messages at all in a 5 second
+        // period. This will be a no-op if the drumline is closed. Resetting if
+        // we don't get any messages for five second should be safe, as the
+        // purpose of the drumline here is to ensure no single partition gets
+        // too far ahead of the others; if there are no messages being produced
+        // by any of them, either there are no messages at all, or there are no
+        // messages because the drumline has gotten streteched too far apart in
+        // the course of normal operation, and it should be reset.
+        log.Debug("Drumline reset")
+      case v := <- readyWaiter():
+        // readyWaiter() will wait 1 second if readych is ready to receive ,
+        // which will trigger a message to get sent on kc.ready. This
+        // should only trigger when we are totally caught up processing all the
+        // messages currently available from Kafka. Before we reach the high
+        // watermark and after this has triggered once, readyWaiter() will be a
+        // nil channel with no significant resource consumption.
+        select {
+        case readych <- v:
+        default:
+        }
+      case <-kc.quit:
+        go func() {
+          for _, c := range partitionConsumers {
+            c.Close()
+          }
+          close(messages)
+        }()
+      }
+    }
+  }()
+  return nil
+}
+func (kc *KafkaConsumer) Ready() <-chan struct{} {
+  if kc.ready != nil { return kc.ready }
+  r := make(chan struct{}, 1)
+  r <- struct{}{}
+  return r
+}
+func (kc *KafkaConsumer) Subscribe(ch interface{}) types.Subscription {
+  return kc.omp.Subscribe(ch)
+}
+func (kc *KafkaConsumer) SubscribeReorg(ch chan<- map[int64]types.Hash) types.Subscription {
+  return kc.omp.SubscribeReorg(ch)
+}
+func (kc *KafkaConsumer) Close() {
+  kc.shutdownWg.Add(1)
+  kc.quit <- struct{}{}
+  kc.shutdownWg.Wait()
 }

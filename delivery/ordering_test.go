@@ -102,7 +102,7 @@ func TestOrdering(t *testing.T) {
   messages = append(messages, cmessages...)
   rand.Seed(time.Now().UnixNano())
   rand.Shuffle(len(messages), func(i, j int) { messages[i], messages[j] = messages[j], messages[i] })
-  omp, err := NewOrderedMessageProcessor(a.number, a.hash, a.weight, 128, []*regexp.Regexp{regexp.MustCompile(".")})
+  omp, err := NewOrderedMessageProcessor(a.number, a.hash, a.weight, 128, []*regexp.Regexp{regexp.MustCompile(".")}, nil)
   defer omp.Close()
   ch := make(chan *ChainUpdate, 5)
   sub := omp.Subscribe(ch)
@@ -159,7 +159,7 @@ func expectedUpdateList(x []*ChainUpdate) []expectedUpdate {
 
 func reorgTester(t *testing.T, messages []ResumptionMessage, expectedEvents []expectedUpdate, last *testUpdate) {
   outputs := []*ChainUpdate{}
-  omp, err := NewOrderedMessageProcessor(last.number, last.hash, last.weight, 128, []*regexp.Regexp{regexp.MustCompile(".")})
+  omp, err := NewOrderedMessageProcessor(last.number, last.hash, last.weight, 128, []*regexp.Regexp{regexp.MustCompile(".")}, nil)
   if err != nil { t.Fatalf(err.Error()) }
   ch := make(chan *ChainUpdate, 5)
   sub := omp.Subscribe(ch)

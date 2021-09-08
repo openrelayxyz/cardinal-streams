@@ -10,6 +10,7 @@ import (
   "time"
 )
 
+
 type OrderedMessageProcessor struct {
   mp *MessageProcessor
   lastHash       types.Hash
@@ -21,10 +22,15 @@ type OrderedMessageProcessor struct {
   quit           chan struct{}
   updateFeed     types.Feed
   reorgFeed      types.Feed
+  whitelist      map[uint64]types.Hash
+  blacklist      map[types.Hash]struct{}
 }
 
 
-func NewOrderedMessageProcessor(lastNumber int64, lastHash types.Hash, lastWeight *big.Int, reorgThreshold int64, trackedPrefixes []*regexp.Regexp) (*OrderedMessageProcessor, error) {
+func NewOrderedMessageProcessor(lastNumber int64, lastHash types.Hash, lastWeight *big.Int, reorgThreshold int64, trackedPrefixes []*regexp.Regexp, whitelist map[uint64]types.Hash) (*OrderedMessageProcessor, error) {
+  if whitelist == nil {
+    whitelist = make(map[uint64]types.Hash)
+  }
   omp := &OrderedMessageProcessor{
     mp: NewMessageProcessor(lastNumber, reorgThreshold, trackedPrefixes),
     lastHash: lastHash,
@@ -33,6 +39,8 @@ func NewOrderedMessageProcessor(lastNumber int64, lastHash types.Hash, lastWeigh
     pending: make(map[types.Hash]*PendingBatch),
     queued: make(map[types.Hash]map[types.Hash]struct{}),
     quit: make(chan struct{}),
+    whitelist: whitelist,
+    blacklist: make(map[types.Hash]struct{}),
   }
   var err error
   omp.finished, err = lru.NewWithEvict(int(reorgThreshold * 2), func(k, v interface{}) {
@@ -76,7 +84,6 @@ func NewOrderedMessageProcessor(lastNumber int64, lastHash types.Hash, lastWeigh
 }
 
 func (omp *OrderedMessageProcessor) evict(hash types.Hash) {
-  // TODO: Clean up from MessageProcessor as well
   if pb, ok := omp.pending[hash]; ok {
     delete(omp.pending, pb.Hash)
     omp.evict(pb.ParentHash) // If the parent is still being tracked we can go ahead and get rid of it
@@ -91,15 +98,37 @@ type ChainUpdate struct {
   removed []*PendingBatch
 }
 
-func (omp *OrderedMessageProcessor) Subscribe(ch chan<- *ChainUpdate) types.Subscription {
-  return omp.updateFeed.Subscribe(ch)
+// Subscribe enables subscribing to either oredred chain updates or unordered
+// pending batches. Calling Subscribe on a chan *ChainUpdate will return a
+// subscription for ordered chain updates. Calling subscribe on a *PendingBatch
+// will return a subscription for unordered pending batches.
+func (omp *OrderedMessageProcessor) Subscribe(ch interface{}) types.Subscription {
+  switch v := ch.(type) {
+  case chan *ChainUpdate:
+    return omp.updateFeed.Subscribe(v)
+  case chan *PendingBatch:
+    return omp.mp.feed.Subscribe(v)
+  }
+  return nil
 }
 
-func (omp *OrderedMessageProcessor) SubscribeReorg(ch chan<- *ChainUpdate) types.Subscription {
-  return omp.updateFeed.Subscribe(ch)
+func (omp *OrderedMessageProcessor) SubscribeReorg(ch chan<- map[int64]types.Hash) types.Subscription {
+  return omp.reorgFeed.Subscribe(ch)
 }
 
 func (omp *OrderedMessageProcessor) HandlePendingBatch(pb *PendingBatch) {
+  if h, ok := omp.whitelist[uint64(pb.Number)]; ok && h != pb.Hash {
+    // If a block is excluded by the whitelist, add it to the blacklist
+    omp.blacklist[pb.Hash] = struct{}{}
+    return
+  }
+  if _, ok := omp.blacklist[pb.ParentHash]; ok {
+    // If a block's parent is in the blacklist, add it to the blacklist and
+    // return. We'll have to keep the hashes of all of the blocks on the wrong
+    // side of the split, but without the blacklist we'd keep the whole blocks.
+    omp.blacklist[pb.Hash] = struct{}{}
+    return
+  }
   omp.pending[pb.Hash] = pb
   if omp.finished.Contains(pb.Hash) {
     // We've already handled this block. Repeats should be rare, given how the

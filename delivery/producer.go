@@ -7,7 +7,6 @@ import (
   "regexp"
 )
 
-
 type batchInfo struct{
   topic string
   block types.Hash
@@ -163,4 +162,9 @@ func (p *Producer) SendBatch(batchid types.Hash, delete []string, update map[str
 // chains.
 func (p *Producer) Reorg(number int64, hash types.Hash) Message {
   return &message{key: ReorgType.GetKey(hash.Bytes()), value: AvroInt(int(number))}
+}
+// ReorgDone should be called at the end of a large reorg, to indicate to the
+// consumer that all messages for the reorg are available
+func (p *Producer) ReorgDone(number int64, hash types.Hash) Message {
+  return &message{key: ReorgCompleteType.GetKey(hash.Bytes()), value: AvroInt(int(number))}
 }

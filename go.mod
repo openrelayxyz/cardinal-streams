@@ -11,6 +11,7 @@ require (
 	github.com/mattn/go-colorable v0.1.8 // indirect
 	github.com/mattn/go-isatty v0.0.13 // indirect
 	github.com/openrelayxyz/cardinal-types v0.0.0-00010101000000-000000000000
+	github.com/openrelayxyz/drumline v0.3.0 // indirect
 	github.com/xdg/scram v1.0.3
 )
 

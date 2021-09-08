@@ -88,6 +88,7 @@ const (
   BatchMsgType                  // BatchMsgType.$hash./path/
   BatchDeleteMsgType            // BatchDeleteMsgType.$hash./path/
   ReorgType                     // ReorgType.$Hash
+  ReorgCompleteType             // ReorgCompleteType.$Hash
 )
 
 func (mt MessageType) GetKey(components ...[]byte) []byte {
@@ -114,4 +115,10 @@ type ResumptionMessage interface{
   Message
   Offset() int64
   Source() string
+}
+
+func UnmarshalBatch(data []byte) (*Batch, error) {
+  b := &Batch{}
+  if err := avro.Unmarshal(batchSchema, data, b); err != nil { return nil, err }
+  return b, nil
 }

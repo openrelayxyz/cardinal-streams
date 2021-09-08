@@ -253,7 +253,6 @@ func (mp *MessageProcessor) ProcessMessage(m ResumptionMessage) error {
       mp.queueMessage(hash, m)
       return nil
     }
-    // TODO: Search pb.pendingMessages for records matching this batch
     batchid := types.BytesToHash(m.Key()[33:])
     if _, ok := mp.pendingBatches[hash].pendingBatches[batchid]; !ok { return nil } // We've already gotten this batch
     delete(mp.pendingBatches[hash].pendingBatches, batchid)
