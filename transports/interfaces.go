@@ -3,11 +3,12 @@ package transports
 import (
   "math/big"
   "github.com/openrelayxyz/cardinal-types"
+  // "github.com/openrelayxyz/cardinal-streams/delivery"
 )
 
 // Producer can be used to send block metadata over a messaging transport.
 type Producer interface {
-  LatestBlockFromFeed() int64
+  LatestBlockFromFeed() (int64, error)
   // AddBlock will send information about a block over the transport layer.
   AddBlock(number int64, hash, parentHash types.Hash, weight *big.Int, updates map[string][]byte, deletes map[string]struct{}, batches map[string]types.Hash) error
   // SendBatch will send information about batches over the transport layer.
@@ -36,4 +37,6 @@ type Consumer interface {
   // Close shuts down the transport layer, which in turn will cause
   // subscriptions to stop producing messages.
   Close()
+  Ready() <-chan struct{}
+  WhyNotReady(types.Hash) string
 }

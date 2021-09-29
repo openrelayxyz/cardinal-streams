@@ -3,6 +3,7 @@ package delivery
 import (
   "github.com/openrelayxyz/cardinal-types"
   "github.com/hamba/avro"
+  "time"
 )
 
 
@@ -115,6 +116,7 @@ type ResumptionMessage interface{
   Message
   Offset() int64
   Source() string
+  Time()   time.Time
 }
 
 func UnmarshalBatch(data []byte) (*Batch, error) {

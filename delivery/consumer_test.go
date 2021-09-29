@@ -19,6 +19,7 @@ type testResumptionMessage struct{
 
 func (r *testResumptionMessage) Offset() int64 { return r.offset }
 func (r *testResumptionMessage) Source() string { return r.source }
+func (r *testResumptionMessage) Time() string { return time.Now() }
 
 
 

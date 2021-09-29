@@ -56,6 +56,7 @@ func NewOrderedMessageProcessor(lastNumber int64, lastHash types.Hash, lastWeigh
     for {
       select {
       case pb := <-ch:
+        log.Debug("OMP Got Pending Batch", "blocknumber", pb.Number, "pending", len(omp.pending), "queued", len(omp.queued))
         omp.HandlePendingBatch(pb)
       case reorg := <-reorgCh:
         for num, hash := range reorg {
@@ -96,6 +97,14 @@ func (omp *OrderedMessageProcessor) evict(hash types.Hash) {
 type ChainUpdate struct {
   added []*PendingBatch
   removed []*PendingBatch
+}
+
+func (c *ChainUpdate) Added() []*PendingBatch {
+  return c.added
+}
+
+func (c *ChainUpdate) Removed() []*PendingBatch {
+  return c.removed
 }
 
 // Subscribe enables subscribing to either oredred chain updates or unordered
@@ -154,7 +163,9 @@ func (omp *OrderedMessageProcessor) HandlePendingBatch(pb *PendingBatch) {
     if child, ok := omp.getPendingChild(pb.Hash); ok {
       // log.Debug("Weight does not justify reorg, but child is available", "child", child)
       // This block's child is already pending, process it instead
-      omp.HandlePendingBatch(omp.pending[child])
+      if pb, ok := omp.pending[child]; ok {
+        omp.HandlePendingBatch(pb)
+      }
       return
     }
   } else {
@@ -162,6 +173,10 @@ func (omp *OrderedMessageProcessor) HandlePendingBatch(pb *PendingBatch) {
       // If the weight is less than the latest data, we can consider it
       // finished so that we can reorg back to it and it will eventuall get
       // evicted
+      if latestBlock := omp.pending[omp.lastHash]; latestBlock != nil && latestBlock.Number - pb.Number > omp.reorgThreshold {
+        log.Info("OMP: Discarding old block", "current", latestBlock.Number, "received", pb.Number)
+        return
+      }
       omp.finished.Add(pb.Hash, struct{}{})
     }
     // Queue for potential later use
@@ -193,6 +208,7 @@ func (omp *OrderedMessageProcessor) prepareEmit(new, old []*PendingBatch) {
     omp.lastWeight = pb.Weight
     omp.finished.Add(pb.Hash, struct{}{})
   }
+  log.Debug("Emitting chain update", "new", len(new), "old", len(old))
   omp.updateFeed.Send(&ChainUpdate{added: new, removed: old})
 }
 
@@ -235,7 +251,13 @@ func (omp *OrderedMessageProcessor) getPendingChild(hash types.Hash) (types.Hash
 func (omp *OrderedMessageProcessor) getPendingChainDifficulty(hash types.Hash) (*big.Int) {
   log.Debug("Getting pending chain difficulty", "block", hash, "pending", omp.queued[hash])
   children, ok := omp.queued[hash]
-  if !ok { return omp.pending[hash].Weight }
+  if !ok {
+    // TODO: Something is wonky here
+    if pb, ok := omp.pending[hash]; ok {
+      return pb.Weight
+    }
+    return new(big.Int)
+  }
   max := new(big.Int)
   for child := range children {
     weight := omp.getPendingChainDifficulty(child)
@@ -282,4 +304,11 @@ func (omp *OrderedMessageProcessor) Close() {
   case <-time.After(time.Second):
     log.Warn("Closing message processor not complete after 1 second")
   }
+}
+
+
+func (omp *OrderedMessageProcessor) WhyNotReady(hash types.Hash) string {
+  if omp.finished.Contains(hash) { return "done, not evicted" }
+  if _, ok := omp.pending[hash]; ok { return "pending parent" }
+  return omp.mp.WhyNotReady(hash)
 }

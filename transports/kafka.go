@@ -10,6 +10,7 @@ import (
   log "github.com/inconshreveable/log15"
   coreLog "log"
   "net/url"
+  "regexp"
   "strings"
   "strconv"
   "sync"
@@ -32,6 +33,9 @@ func (m *KafkaResumptionMessage) Key() []byte {
 }
 func (m *KafkaResumptionMessage) Value() []byte {
   return m.msg.Value
+}
+func (m *KafkaResumptionMessage) Time() time.Time {
+  return m.msg.Timestamp
 }
 
 func ParseKafkaURL(brokerURL string) ([]string, *sarama.Config) {
@@ -270,22 +274,22 @@ func (kp *KafkaProducer) Reorg(number int64, hash types.Hash) (func(), error) {
 // specified by an operator in case messages are needed to start on the correct
 // side of a reorg while the feed has messages from a longer but invalid chain.
 func (kp *KafkaProducer) LatestBlockFromFeed() (int64, error) {
-  brokerList, config := ParseKafkaURL(brokerAddr)
+  brokerList, config := ParseKafkaURL(kp.brokerURL)
   client, err := sarama.NewClient(brokerList, config)
   if err != nil { return 0, err }
   consumer, err := sarama.NewConsumerFromClient(client)
   if err != nil { return 0, err }
-  partitions, err := consumer.Partitions(topic)
+  partitions, err := consumer.Partitions(kp.defaultTopic)
   if err != nil { return 0, err }
   hwm := consumer.HighWaterMarks()
   var highestNumber int64
-  for i, partid := range partitions {
+  for _, partid := range partitions {
     offset := hwm[kp.defaultTopic][partid]
     offset -= 100
     if offset < 0 { offset = sarama.OffsetOldest }
-    pc, err := consumer.ConsumePartition(topic, partid, offset)
+    pc, err := consumer.ConsumePartition(kp.defaultTopic, partid, offset)
     if err != nil {
-      pc, err = consumer.ConsumePartition(topic, partid, srama.OffsetOldest)
+      pc, err = consumer.ConsumePartition(kp.defaultTopic, partid, sarama.OffsetOldest)
       if err != nil { return 0, err }
     }
     for input := range pc.Messages() {
@@ -311,16 +315,47 @@ type KafkaConsumer struct{
   defaultTopic string
   topics       []string
   resumption   map[string]int64
-  startOffsets map[string]int64
   client       sarama.Client
   rollback     int64
   shutdownWg   sync.WaitGroup
   isReorg      bool
 }
 
+// NewKafkaConsumer provides a transports.Consumer that pulls messages from a
+// Kafka broker
+func NewKafkaConsumer(brokerURL, defaultTopic string, topics []string, resumption []byte, rollback, lastNumber int64, lastHash types.Hash, lastWeight *big.Int, reorgThreshold int64, trackedPrefixes []*regexp.Regexp, whitelist map[uint64]types.Hash) (Consumer, error) {
+  omp, err := delivery.NewOrderedMessageProcessor(lastNumber, lastHash, lastWeight, reorgThreshold, trackedPrefixes, whitelist)
+  if err != nil { return nil, err }
+  resumptionMap := make(map[string]int64)
+  for _, token := range strings.Split(string(resumption), ";") {
+    parts := strings.Split(token, "=")
+    if len(parts) != 2 { continue }
+    offset, err := strconv.Atoi(parts[1])
+    if err != nil { return nil, err }
+    resumptionMap[parts[0]] = int64(offset)
+  }
+  brokers, config := ParseKafkaURL(strings.TrimPrefix(brokerURL, "kafka://"))
+  client, err := sarama.NewClient(brokers, config)
+  if err != nil {
+    log.Error("error connecting to brokers", "brokers", brokers)
+    return nil, err
+  }
+  return &KafkaConsumer{
+    omp: omp,
+    quit: make(chan struct{}),
+    ready: make(chan struct{}),
+    brokerURL: brokerURL,
+    defaultTopic: defaultTopic,
+    topics: topics,
+    resumption: resumptionMap,
+    client: client,
+    rollback: rollback,
+  }, nil
+}
 
 func (kc *KafkaConsumer) Start() error {
-  dl := drumline.NewDrumline(4000)
+  log.Debug("Starting kafka consumer")
+  dl := drumline.NewDrumline(256)
   consumer, err := sarama.NewConsumerFromClient(kc.client)
   if err != nil { return err }
   var readyWg, warmupWg, reorgWg sync.WaitGroup
@@ -332,10 +367,10 @@ func (kc *KafkaConsumer) Start() error {
     for _, partid := range partitions {
       readyWg.Add(1)
       warmupWg.Add(1)
-      k := fmt.Sprintf("%v:%v", topic, )
+      k := fmt.Sprintf("%v:%v", topic, partid)
       offset, ok := kc.resumption[k]
       var startOffset int64
-      if !ok {
+      if !ok || offset < kc.rollback{
         offset = sarama.OffsetOldest
         startOffset = offset
       } else {
@@ -347,7 +382,9 @@ func (kc *KafkaConsumer) Start() error {
         if err != nil { return err }
         startOffset = offset
       }
+      log.Info("Starting partition consumer", "topic", topic, "partition", partid, "offset", offset, "startOffset", startOffset)
       go func(pc sarama.PartitionConsumer, startOffset int64, i int) {
+        dl.Add(i)
         var once sync.Once
         warm := false
         for input := range pc.Messages() {
@@ -359,12 +396,16 @@ func (kc *KafkaConsumer) Start() error {
             warm = true
           }
           if kc.ready != nil {
+            dl.Step(i)
             if pc.HighWaterMarkOffset() - input.Offset <= 1 {
               // Once we're caught up with the high watermark, let the ready
               // channel know
-              once.Do(readyWg.Done)
+              once.Do(func() {
+                log.Debug("Partition ready", "topic", input.Topic, "partition", input.Partition)
+                dl.Done(i)
+                readyWg.Done()
+              })
             }
-            dl.Step(i)
           }
           messages <- input
         }
@@ -387,13 +428,18 @@ func (kc *KafkaConsumer) Start() error {
   go func(wg, reorgWg *sync.WaitGroup) {
     // Wait until all partition consumers are up to the high water mark and alert the ready channel
     wg.Wait()
+    log.Debug("Partitions ready")
     reorgWg.Wait()
+    log.Debug("Reorg waiter ready")
     readych = make(chan time.Time)
     <-readych
+    log.Debug("Ready")
     readych = nil
     kc.ready <- struct{}{}
+    log.Debug("Ready sent")
     kc.ready = nil
     dl.Close()
+    log.Debug("")
   }(&readyWg, &reorgWg)
   go func() {
     for {
@@ -414,7 +460,6 @@ func (kc *KafkaConsumer) Start() error {
               brokerURL: kc.brokerURL,
               topics: []string{fmt.Sprintf("%s-re-%x",  kc.defaultTopic, msg.Key()[1:])},
               resumption: make(map[string]int64),
-              startOffsets: make(map[string]int64),
               client: kc.client,
             }
             rekc.Start()
@@ -435,7 +480,7 @@ func (kc *KafkaConsumer) Start() error {
             continue
           }
         }
-      case <-dl.Reset(5 * time.Second):
+      case <-dl.Reset(5000 * time.Millisecond):
         // Reset the drumline if we got no messages at all in a 5 second
         // period. This will be a no-op if the drumline is closed. Resetting if
         // we don't get any messages for five second should be safe, as the
@@ -484,4 +529,7 @@ func (kc *KafkaConsumer) Close() {
   kc.shutdownWg.Add(1)
   kc.quit <- struct{}{}
   kc.shutdownWg.Wait()
+}
+func (kc *KafkaConsumer) WhyNotReady(hash types.Hash) string {
+  return kc.omp.WhyNotReady(hash)
 }

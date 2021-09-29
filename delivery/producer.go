@@ -133,7 +133,7 @@ func (p *Producer) SendBatch(batchid types.Hash, delete []string, update map[str
   topicMessages := make(map[string][]Message)
   deleteRecords := 0
   if len(delete) > 0 { deleteRecords = 1}
-  topicMessages[bi.topic] = make([]Message, 1, len(update) + deleteRecords)
+  topicMessages[bi.topic] = make([]Message, 1, len(update) + deleteRecords + 1)
   counter := 0
   if deleteRecords > 0 {
     topicMessages[bi.topic] = append(topicMessages[bi.topic], &message{
