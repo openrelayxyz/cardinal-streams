@@ -306,7 +306,6 @@ func (kp *KafkaProducer) LatestBlockFromFeed() (int64, error) {
   return highestNumber, nil
 }
 
-
 type KafkaConsumer struct{
   omp          *delivery.OrderedMessageProcessor
   quit         chan struct{}
