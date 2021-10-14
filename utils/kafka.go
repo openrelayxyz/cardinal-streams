@@ -29,7 +29,7 @@ func NewTopicConsumer(brokerURL, topic string, buffer int) (*topicConsumer, erro
 	if err != nil {
 		return nil, err
 	}
-	messages := make(chan *sarama.ConsumerMessage, buffer) // 512 is arbitrary. Worked for Flume, but may require tuning for Cardinal
+	tc.messages = make(chan *sarama.ConsumerMessage, buffer) // 512 is arbitrary. Worked for Flume, but may require tuning for Cardinal
 	partitions, err := tc.consumer.Partitions(topic)
 	tc.partitionConsumers = make([]sarama.PartitionConsumer, len(partitions))
 	if err != nil { return nil, err }
@@ -38,7 +38,7 @@ func NewTopicConsumer(brokerURL, topic string, buffer int) (*topicConsumer, erro
 		if err != nil { return nil, err }
 		go func(pc sarama.PartitionConsumer, i int) {
 			for input := range pc.Messages() {
-				messages <- input
+				tc.messages <- input
 			}
 		}(pc, len(tc.partitionConsumers))
 		tc.partitionConsumers[i] = pc
