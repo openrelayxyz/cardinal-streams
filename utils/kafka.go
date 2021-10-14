@@ -8,12 +8,12 @@ import (
 
 // TopicConsumer consumes all of the partitions on a
 type TopicConsumer interface {
-	Messages() <-chan sarama.ConsumerMessage
+	Messages() <-chan *sarama.ConsumerMessage
 	Close() error
 }
 
 type topicConsumer struct {
-	messages chan sarama.ConsumerMessage
+	messages chan *sarama.ConsumerMessage
 	partitionConsumers []sarama.PartitionConsumer
 	consumer sarama.Consumer
 }
@@ -46,7 +46,7 @@ func NewTopicConsumer(brokerURL, topic string, buffer int) (*topicConsumer, erro
 	return tc, nil
 }
 
-func (tc *topicConsumer) Messages() <-chan sarama.ConsumerMessage {
+func (tc *topicConsumer) Messages() <-chan *sarama.ConsumerMessage {
 	return tc.messages
 }
 
