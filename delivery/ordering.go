@@ -148,6 +148,10 @@ func (omp *OrderedMessageProcessor) HandlePendingBatch(pb *PendingBatch) {
     // Emit now
     omp.prepareEmit([]*PendingBatch{pb}, []*PendingBatch{})
     return
+  } else if omp.lastHash == (types.Hash{}) {
+    // Initialized without a lastHash; emit the first block we see.
+    omp.prepareEmit([]*PendingBatch{pb}, []*PendingBatch{})
+    return
   } else if omp.finished.Contains(pb.ParentHash) {
     if pb.Weight.Cmp(omp.lastWeight) > 0 {
       // Evaluate Reorg
