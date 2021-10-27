@@ -285,6 +285,7 @@ func (kp *KafkaProducer) LatestBlockFromFeed() (int64, error) {
   var highestNumber int64
   for _, partid := range partitions {
     offset := hwm[kp.defaultTopic][partid]
+    if offset == 0 { continue }
     offset -= 100
     if offset < 0 { offset = sarama.OffsetOldest }
     pc, err := consumer.ConsumePartition(kp.defaultTopic, partid, offset)
@@ -395,7 +396,9 @@ func (kc *KafkaConsumer) Start() error {
             warm = true
           }
           if kc.ready != nil {
-            dl.Step(i)
+            if !kc.isReorg {
+              dl.Step(i)
+            }
             if pc.HighWaterMarkOffset() - input.Offset <= 1 {
               // Once we're caught up with the high watermark, let the ready
               // channel know
@@ -428,12 +431,12 @@ func (kc *KafkaConsumer) Start() error {
     // Wait until all partition consumers are up to the high water mark and alert the ready channel
     wg.Wait()
     log.Debug("Partitions ready")
-    reorgWg.Wait()
-    log.Debug("Reorg waiter ready")
     readych = make(chan time.Time)
     <-readych
     log.Debug("Ready")
     readych = nil
+    reorgWg.Wait()
+    log.Debug("Reorg waiter ready")
     kc.ready <- struct{}{}
     log.Debug("Ready sent")
     kc.ready = nil
@@ -460,6 +463,7 @@ func (kc *KafkaConsumer) Start() error {
               topics: []string{fmt.Sprintf("%s-re-%x",  kc.defaultTopic, msg.Key()[1:])},
               resumption: make(map[string]int64),
               client: kc.client,
+              isReorg: true,
             }
             rekc.Start()
             <-rekc.Ready()
@@ -468,7 +472,6 @@ func (kc *KafkaConsumer) Start() error {
             reorgWg.Add(1)
             if err := kc.omp.ProcessMessage(msg); err != nil {
               log.Error("Error processing input:", "err", err, "key", input.Key, "msg", input.Value, "part", input.Partition, "offset", input.Offset)
-              continue
             }
           }
         case delivery.ReorgCompleteType:
@@ -476,7 +479,6 @@ func (kc *KafkaConsumer) Start() error {
         default:
           if err := kc.omp.ProcessMessage(msg); err != nil {
             log.Error("Error processing input:", "err", err, "key", input.Key, "msg", input.Value, "part", input.Partition, "offset", input.Offset)
-            continue
           }
         }
       case <-dl.Reset(5000 * time.Millisecond):
