@@ -81,7 +81,7 @@ func ParseKafkaURL(brokerURL string) ([]string, *sarama.Config) {
   if val, err := strconv.Atoi(parsedURL.Query().Get("message.send.max.retries")); err == nil {
     config.Producer.Retry.Max = val
   } else {
-    config.Producer.Retry.Max = 10000000
+    config.Producer.Retry.Max = 100
   }
   if val, err := strconv.Atoi(parsedURL.Query().Get("request.required.acks")); err == nil {
     config.Producer.RequiredAcks = sarama.RequiredAcks(val)
