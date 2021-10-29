@@ -90,6 +90,7 @@ func (omp *OrderedMessageProcessor) evict(hash types.Hash) {
     omp.evict(pb.ParentHash) // If the parent is still being tracked we can go ahead and get rid of it
     if children, ok := omp.queued[pb.Hash]; ok {
       for childHash := range children { omp.evict(childHash) } // Any children of this block that haven't been emitted never will be.
+      delete(omp.queued, pb.Hash)
     }
   }
 }
