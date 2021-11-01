@@ -206,7 +206,9 @@ func (omp *OrderedMessageProcessor) prepareEmit(new, old []*PendingBatch) {
   }
   for hash, ok := omp.getPendingChild(omp.lastHash); ok; hash, ok = omp.getPendingChild(omp.lastHash) {
     pb := omp.pending[hash]
-    if pb == nil { panic(fmt.Sprintf("Could not find a pending batch for %#x", hash)) }
+    if pb == nil {
+      panic(fmt.Sprintf("Could not find a pending batch for %#x - lastHash: %#x - new: %v old: %v", hash, omp.lastHash, len(new), len(old)))
+    }
     new = append(new, pb)
     omp.finishSiblings(pb)
     omp.lastHash = pb.Hash
@@ -254,7 +256,7 @@ func (omp *OrderedMessageProcessor) getPendingChild(hash types.Hash) (types.Hash
 // getPendingChainDifficulty returns the weight of the heaviest chain
 // descending from a given node.
 func (omp *OrderedMessageProcessor) getPendingChainDifficulty(hash types.Hash) (*big.Int) {
-  log.Debug("Getting pending chain difficulty", "block", hash, "pending", omp.queued[hash])
+  // log.Debug("Getting pending chain difficulty", "block", hash, "pending", omp.queued[hash])
   children, ok := omp.queued[hash]
   if !ok {
     // TODO: Something is wonky here
