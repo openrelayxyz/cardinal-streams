@@ -319,6 +319,7 @@ type KafkaConsumer struct{
   rollback     int64
   shutdownWg   sync.WaitGroup
   isReorg      bool
+  startHash    types.Hash
 }
 
 // NewKafkaConsumer provides a transports.Consumer that pulls messages from a
@@ -350,6 +351,7 @@ func NewKafkaConsumer(brokerURL, defaultTopic string, topics []string, resumptio
     resumption: resumptionMap,
     client: client,
     rollback: rollback,
+    startHash: lastHash,
   }, nil
 }
 
@@ -371,7 +373,7 @@ func (kc *KafkaConsumer) Start() error {
       offset, ok := kc.resumption[k]
       var startOffset int64
       if !ok || offset < kc.rollback{
-        if kc.omp.lastHash == (types.Hash{}) {
+        if kc.startHash == (types.Hash{}) {
           // An empty hash indicates an intention to start tracking the feed
           // now, so we should not add historical messages
           offset = sarama.OffsetNewest
