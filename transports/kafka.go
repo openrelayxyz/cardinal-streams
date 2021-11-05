@@ -371,7 +371,13 @@ func (kc *KafkaConsumer) Start() error {
       offset, ok := kc.resumption[k]
       var startOffset int64
       if !ok || offset < kc.rollback{
-        offset = sarama.OffsetOldest
+        if kc.omp.lastHash == (types.Hash{}) {
+          // An empty hash indicates an intention to start tracking the feed
+          // now, so we should not add historical messages
+          offset = sarama.OffsetNewest
+        } else {
+          offset = sarama.OffsetOldest
+        }
         startOffset = offset
       } else {
         startOffset = offset - kc.rollback

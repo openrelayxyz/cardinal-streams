@@ -56,7 +56,11 @@ func NewOrderedMessageProcessor(lastNumber int64, lastHash types.Hash, lastWeigh
     for {
       select {
       case pb := <-ch:
-        log.Debug("OMP Got Pending Batch", "blocknumber", pb.Number, "pending", len(omp.pending), "queued", len(omp.queued))
+        lastBlock := lastNumber
+        if batch, ok := omp.pending[omp.lastHash]; ok {
+          lastBlock = batch.Number
+        }
+        log.Debug("OMP Got Pending Batch", "blocknumber", pb.Number, "pending", len(omp.pending), "queued", len(omp.queued), "lastnum", lastBlock, "lasthash", omp.lastHash, "parent", pb.ParentHash)
         omp.HandlePendingBatch(pb)
       case reorg := <-reorgCh:
         for num, hash := range reorg {
