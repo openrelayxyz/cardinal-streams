@@ -197,7 +197,7 @@ type KafkaProducer struct{
 func NewKafkaProducer(brokerURL, defaultTopic string, schema map[string]string) (Producer, error) {
   dp, err := delivery.NewProducer(defaultTopic, schema)
   if err != nil { return nil, err }
-  brokers, config := ParseKafkaURL(brokerURL)
+  brokers, config := ParseKafkaURL(strings.TrimPrefix(brokerURL, "kafka://"))
   if err := CreateTopicIfDoesNotExist(brokerURL, defaultTopic, -1, nil); err != nil {
     return nil, err
   }
@@ -322,11 +322,7 @@ type KafkaConsumer struct{
   startHash    types.Hash
 }
 
-// NewKafkaConsumer provides a transports.Consumer that pulls messages from a
-// Kafka broker
-func NewKafkaConsumer(brokerURL, defaultTopic string, topics []string, resumption []byte, rollback, lastNumber int64, lastHash types.Hash, lastWeight *big.Int, reorgThreshold int64, trackedPrefixes []*regexp.Regexp, whitelist map[uint64]types.Hash) (Consumer, error) {
-  omp, err := delivery.NewOrderedMessageProcessor(lastNumber, lastHash, lastWeight, reorgThreshold, trackedPrefixes, whitelist)
-  if err != nil { return nil, err }
+func kafkaConsumerWithOMP(omp *delivery.OrderedMessageProcessor, brokerURL, defaultTopic string, topics []string, resumption []byte, rollback int64, lastHash types.Hash) (Consumer, error) {
   resumptionMap := make(map[string]int64)
   for _, token := range strings.Split(string(resumption), ";") {
     parts := strings.Split(token, "=")
@@ -353,6 +349,14 @@ func NewKafkaConsumer(brokerURL, defaultTopic string, topics []string, resumptio
     rollback: rollback,
     startHash: lastHash,
   }, nil
+}
+
+// NewKafkaConsumer provides a transports.Consumer that pulls messages from a
+// Kafka broker
+func NewKafkaConsumer(brokerURL, defaultTopic string, topics []string, resumption []byte, rollback, lastNumber int64, lastHash types.Hash, lastWeight *big.Int, reorgThreshold int64, trackedPrefixes []*regexp.Regexp, whitelist map[uint64]types.Hash) (Consumer, error) {
+  omp, err := delivery.NewOrderedMessageProcessor(lastNumber, lastHash, lastWeight, reorgThreshold, trackedPrefixes, whitelist)
+  if err != nil { return nil, err }
+  return kafkaConsumerWithOMP(omp, brokerURL, defaultTopic, topics, resumption, rollback, lastHash)
 }
 
 func (kc *KafkaConsumer) Start() error {
