@@ -5,9 +5,19 @@ import (
   "regexp"
   "math/big"
   "github.com/openrelayxyz/cardinal-types"
+  "github.com/openrelayxyz/cardinal-types/metrics"
   "github.com/hashicorp/golang-lru"
   log "github.com/inconshreveable/log15"
   "time"
+)
+
+var (
+  heightGauge = metrics.NewMinorGauge("/streams/omp/height")
+  pendingGauge = metrics.NewMinorGauge("/streams/omp/pending")
+  queuedGauge = metrics.NewMinorGauge("/streams/omp/queued")
+  reorgExecMeter = metrics.NewMajorMeter("/streams/reorg/exec")
+  reorgAddMeter = metrics.NewMajorMeter("/streams/reorg/add")
+  reorgDropMeter = metrics.NewMajorMeter("/streams/reorg/drop")
 )
 
 
@@ -60,6 +70,8 @@ func NewOrderedMessageProcessor(lastNumber int64, lastHash types.Hash, lastWeigh
         if batch, ok := omp.pending[omp.lastHash]; ok {
           lastBlock = batch.Number
         }
+        pendingGauge.Update(int64(len(omp.pending)))
+        queuedGauge.Update(int64(len(omp.queued)))
         log.Debug("OMP Got Pending Batch", "blocknumber", pb.Number, "pending", len(omp.pending), "queued", len(omp.queued), "lastnum", lastBlock, "lasthash", omp.lastHash, "parent", pb.ParentHash)
         omp.HandlePendingBatch(pb)
       case reorg := <-reorgCh:
@@ -220,6 +232,14 @@ func (omp *OrderedMessageProcessor) prepareEmit(new, old []*PendingBatch) {
     omp.finished.Add(pb.Hash, struct{}{})
   }
   log.Debug("Emitting chain update", "new", len(new), "old", len(old))
+  if len(new) > 0 {
+    heightGauge.Update(new[len(new) - 1].Number)
+  }
+  if len(old) > 0 {
+    reorgDropMeter.Mark(int64(len(old)))
+    reorgAddMeter.Mark(int64(len(new)))
+    reorgExecMeter.Mark(1)
+  }
   omp.updateFeed.Send(&ChainUpdate{added: new, removed: old})
 }
 

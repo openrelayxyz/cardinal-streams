@@ -6,11 +6,17 @@ import (
   "strings"
   "github.com/hashicorp/golang-lru"
   "github.com/openrelayxyz/cardinal-types"
+  "github.com/openrelayxyz/cardinal-types/metrics"
   "github.com/hamba/avro"
   log "github.com/inconshreveable/log15"
   "regexp"
   "fmt"
   "time"
+)
+
+var (
+  pbGauge = metrics.NewMinorGauge("/streams/con/pending")
+  messagesGauge = metrics.NewMinorGauge("/streams/con/messages")
 )
 
 type PendingBatch struct {
@@ -209,7 +215,9 @@ func (mp *MessageProcessor) ProcessMessage(m ResumptionMessage) error {
   if MessageType(m.Key()[0]) == ReorgType {
     var err error
     mp.completed, err = lru.New(int(2 * mp.reorgThreshold))
-    return err
+    if err != nil {
+      return err
+    }
     mp.oldBlocks = make(map[types.Hash]struct{})
     if err := avro.Unmarshal(intSchema, m.Value(), &mp.lastEmittedNum); err != nil { return err }
     mp.reorgFeed.Send(map[int64]types.Hash{mp.lastEmittedNum: hash})
@@ -272,6 +280,8 @@ func (mp *MessageProcessor) ProcessMessage(m ResumptionMessage) error {
       }
       delete (mp.pendingMessages, hash)
     }
+    pbGauge.Update(int64(len(mp.pendingBatches)))
+    messagesGauge.Update(int64(len(mp.pendingMessages)))
     log.Debug("New pending batch", "number", b.Number, "pending", len(mp.pendingBatches), "messages", len(mp.pendingMessages), "source", m.Source())
   case SubBatchHeaderType:
     if _, ok := mp.pendingBatches[hash] ; !ok {

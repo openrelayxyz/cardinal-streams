@@ -33,7 +33,7 @@ func resolveConsumer(omp *delivery.OrderedMessageProcessor, brokerURL, defaultTo
   case "null":
     return NewNullConsumer(), nil
   default:
-    return nil, fmt.Errorf("unknown producer protocol '%v'", protocol)
+    return nil, fmt.Errorf("unknown consumer protocol '%v'", protocol)
   }
 }
 

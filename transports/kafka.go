@@ -5,6 +5,7 @@ import (
   "math/big"
   "github.com/Shopify/sarama"
   "github.com/openrelayxyz/cardinal-types"
+  "github.com/openrelayxyz/cardinal-types/metrics"
   "github.com/openrelayxyz/cardinal-streams/delivery"
   "github.com/openrelayxyz/drumline"
   log "github.com/inconshreveable/log15"
@@ -395,11 +396,15 @@ func (kc *KafkaConsumer) Start() error {
         startOffset = offset
       }
       log.Info("Starting partition consumer", "topic", topic, "partition", partid, "offset", offset, "startOffset", startOffset)
-      go func(pc sarama.PartitionConsumer, startOffset int64, i int) {
+      go func(pc sarama.PartitionConsumer, startOffset int64, partid int32, i int, topic string) {
         dl.Add(i)
         var once sync.Once
         warm := false
+        meter := metrics.NewMinorMeter(fmt.Sprintf("streams/kafka/%v/%v/meter", topic, partid))
+        lagGauge := metrics.NewMinorGauge(fmt.Sprintf("streams/kafka/%v/%v/lag", topic, partid))
         for input := range pc.Messages() {
+          meter.Mark(1)
+          lagGauge.Update(pc.HighWaterMarkOffset() - input.Offset)
           if !warm && input.Offset >= startOffset {
             // Once we're caught up with the startup offsets, wait until the
             // other partition consumers are too before continuing.
@@ -423,7 +428,7 @@ func (kc *KafkaConsumer) Start() error {
           }
           messages <- input
         }
-      }(pc, startOffset, len(partitionConsumers))
+      }(pc, startOffset, partid, len(partitionConsumers), topic)
       partitionConsumers = append(partitionConsumers, pc)
     }
   }
