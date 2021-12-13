@@ -15,6 +15,7 @@ import (
 )
 
 var (
+  deltaTimer = metrics.NewMajorTimer("/streams/delta")
   pbGauge = metrics.NewMinorGauge("/streams/con/pending")
   messagesGauge = metrics.NewMinorGauge("/streams/con/messages")
 )
@@ -68,6 +69,7 @@ func (pb *PendingBatch) Ready() bool {
 
 // Done should be called on a pending batch after it has been applied.
 func (pb *PendingBatch) Done() {
+  deltaTimer.UpdateSince(pb.time)
   log.Debug("Batch applied", "hash", pb.Hash, "number", pb.Number, "delta", time.Since(pb.time))
 }
 
