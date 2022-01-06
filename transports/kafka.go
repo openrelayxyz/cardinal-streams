@@ -352,6 +352,30 @@ func kafkaConsumerWithOMP(omp *delivery.OrderedMessageProcessor, brokerURL, defa
   }, nil
 }
 
+
+
+func kafkaResumptionForTimestamp(brokerURL string, topics []string, timestamp int64) ([]byte, error) {
+  brokers, config := ParseKafkaURL(strings.TrimPrefix(brokerURL, "kafka://"))
+  client, err := sarama.NewClient(brokers, config)
+  if err != nil {
+    log.Error("error connecting to brokers", "brokers", brokers)
+    return nil, err
+  }
+  resumption := []string{}
+  for _, topic := range topics {
+    parts, err := client.Partitions(topic)
+    if err != nil { return nil, err }
+    for _, part := range parts {
+      offset, err := client.GetOffset(topic, part, timestamp)
+      if err != nil {
+        return nil, err
+      }
+      resumption = append(resumption, fmt.Sprintf("%v:%v=%v", topic, part, offset))
+    }
+  }
+  return []byte(strings.Join(resumption, ";")), nil
+}
+
 // NewKafkaConsumer provides a transports.Consumer that pulls messages from a
 // Kafka broker
 func NewKafkaConsumer(brokerURL, defaultTopic string, topics []string, resumption []byte, rollback, lastNumber int64, lastHash types.Hash, lastWeight *big.Int, reorgThreshold int64, trackedPrefixes []*regexp.Regexp, whitelist map[uint64]types.Hash) (Consumer, error) {

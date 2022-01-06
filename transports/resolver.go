@@ -37,6 +37,17 @@ func resolveConsumer(omp *delivery.OrderedMessageProcessor, brokerURL, defaultTo
   }
 }
 
+func ResumptionForTimestamp(brokerURL string, topics[]string, timestamp int64) ([]byte, error) {
+  switch protocol := strings.Split(strings.TrimPrefix(brokerURL, "cardinal://"), "://"); protocol[0] {
+  case "kafka":
+    return kafkaResumptionForTimestamp(brokerURL, topics, timestamp)
+  case "null":
+    return []byte{}, nil
+  default:
+    return nil, fmt.Errorf("unknown consumer protocol '%v'", protocol)
+  }
+}
+
 // ResolveMuxConsumer takes a list of broker configurations
 func ResolveMuxConsumer(brokerParams []BrokerParams, resumption []byte, lastNumber int64, lastHash types.Hash, lastWeight *big.Int, reorgThreshold int64, trackedPrefixes []*regexp.Regexp, whitelist map[uint64]types.Hash) (Consumer, error) {
   omp, err := delivery.NewOrderedMessageProcessor(lastNumber, lastHash, lastWeight, reorgThreshold, trackedPrefixes, whitelist)
