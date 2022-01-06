@@ -1,6 +1,7 @@
 package transports
 
 import (
+  "bytes"
   "fmt"
   "math/big"
   "regexp"
@@ -37,15 +38,22 @@ func resolveConsumer(omp *delivery.OrderedMessageProcessor, brokerURL, defaultTo
   }
 }
 
-func ResumptionForTimestamp(brokerURL string, topics[]string, timestamp int64) ([]byte, error) {
-  switch protocol := strings.Split(strings.TrimPrefix(brokerURL, "cardinal://"), "://"); protocol[0] {
-  case "kafka":
-    return kafkaResumptionForTimestamp(brokerURL, topics, timestamp)
-  case "null":
-    return []byte{}, nil
-  default:
-    return nil, fmt.Errorf("unknown consumer protocol '%v'", protocol)
+func ResumptionForTimestamp(brokerParams []BrokerParams, timestamp int64) ([]byte, error) {
+  results := [][]byte{}
+  for _, bp := range brokerParams {
+    switch protocol := strings.Split(strings.TrimPrefix(bp.URL, "cardinal://"), "://"); protocol[0] {
+    case "kafka":
+      res, err := kafkaResumptionForTimestamp(bp.URL, bp.Topics, timestamp)
+      if err != nil {
+        return nil, err
+      }
+      results = append(results, res)
+    case "null":
+    default:
+      return nil, fmt.Errorf("unknown consumer protocol '%v'", protocol)
+    }
   }
+  return bytes.Join(results, []byte(";")), nil
 }
 
 // ResolveMuxConsumer takes a list of broker configurations
