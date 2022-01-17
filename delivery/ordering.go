@@ -55,7 +55,9 @@ func NewOrderedMessageProcessor(lastNumber int64, lastHash types.Hash, lastWeigh
   var err error
   omp.finished, err = lru.NewWithEvict(int(reorgThreshold * 2), func(k, v interface{}) {
     hash := k.(types.Hash)
+    pb := v.(PendingBatch)
     omp.evict(hash)
+    omp.mp.evictOlderThan(pb.Number)
   })
   omp.finished.Add(lastHash, struct{}{})
   ch := make(chan *PendingBatch, 100)

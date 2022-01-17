@@ -210,6 +210,15 @@ func (mp *MessageProcessor) SubscribeReorgs(ch chan <- map[int64]types.Hash) typ
   return mp.reorgFeed.Subscribe(ch)
 }
 
+func (mp *MessageProcessor) evictOlderThan(n int64) {
+  for h, pb := range mp.pendingBatches {
+    if pb.Number < n {
+      delete(mp.pendingBatches, h)
+      mp.oldBlocks[h] = struct{}{}
+    }
+  }
+}
+
 // ProcessMessage takes in messages and assembles completed blocks of messages.
 func (mp *MessageProcessor) ProcessMessage(m ResumptionMessage) error {
   mp.updateResumption(m.Source(), m.Offset())
