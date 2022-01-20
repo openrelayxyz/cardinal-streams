@@ -55,9 +55,7 @@ func NewOrderedMessageProcessor(lastNumber int64, lastHash types.Hash, lastWeigh
   var err error
   omp.finished, err = lru.NewWithEvict(int(reorgThreshold * 2), func(k, v interface{}) {
     hash := k.(types.Hash)
-    pb := v.(PendingBatch)
     omp.evict(hash)
-    omp.mp.evictOlderThan(pb.Number)
   })
   omp.finished.Add(lastHash, struct{}{})
   ch := make(chan *PendingBatch, 100)
@@ -105,6 +103,7 @@ func NewOrderedMessageProcessor(lastNumber int64, lastHash types.Hash, lastWeigh
 func (omp *OrderedMessageProcessor) evict(hash types.Hash) {
   if pb, ok := omp.pending[hash]; ok {
     delete(omp.pending, pb.Hash)
+    omp.mp.evictOlderThan(pb.Number)
     omp.evict(pb.ParentHash) // If the parent is still being tracked we can go ahead and get rid of it
     if children, ok := omp.queued[pb.Hash]; ok {
       for childHash := range children { omp.evict(childHash) } // Any children of this block that haven't been emitted never will be.
