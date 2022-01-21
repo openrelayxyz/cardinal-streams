@@ -102,6 +102,9 @@ func (p *Producer) AddBlock(number int64, hash, parentHash types.Hash, weight *b
   }
   //Create batch messages
   for k, h := range batches {
+    if h == (types.Hash{}) {
+      return nil, ErrInvalidBatch
+    }
     if _, ok := b.Updates[k]; ok { return nil, ErrPrefixConflict }
     b.Updates[k] = BatchRecord{Subbatch: h}
     bi := &batchInfo{
