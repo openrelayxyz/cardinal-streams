@@ -178,6 +178,7 @@ type MessageProcessor struct {
   feed            types.Feed
   reorgFeed       types.Feed
   resumption      map[string]int64
+  evictCh         chan int64
 }
 
 // NewMessageProcessor instantiates a MessageProcessor. lastEmittedNum should
@@ -197,6 +198,7 @@ func NewMessageProcessor(lastEmittedNum int64, reorgThreshold int64, trackedPref
     pendingMessages: make(map[types.Hash]map[string]ResumptionMessage),
     oldBlocks:       make(map[types.Hash]struct{}),
     resumption:      make(map[string]int64),
+    evictCh:         make(chan int64, 100),
   }
 }
 
@@ -211,16 +213,21 @@ func (mp *MessageProcessor) SubscribeReorgs(ch chan <- map[int64]types.Hash) typ
 }
 
 func (mp *MessageProcessor) evictOlderThan(n int64) {
-  for h, pb := range mp.pendingBatches {
-    if pb.Number < n {
-      delete(mp.pendingBatches, h)
-      mp.oldBlocks[h] = struct{}{}
-    }
-  }
+  mp.evictCh <- n
 }
 
 // ProcessMessage takes in messages and assembles completed blocks of messages.
 func (mp *MessageProcessor) ProcessMessage(m ResumptionMessage) error {
+  select {
+  case n := <-mp.evictCh:
+    for h, pb := range mp.pendingBatches {
+      if pb.Number < n {
+        delete(mp.pendingBatches, h)
+        mp.oldBlocks[h] = struct{}{}
+      }
+    }
+  default:
+  }
   mp.updateResumption(m.Source(), m.Offset())
   hash := types.BytesToHash(m.Key()[1:33])
   if MessageType(m.Key()[0]) == ReorgType {
