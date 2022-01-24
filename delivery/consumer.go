@@ -213,20 +213,27 @@ func (mp *MessageProcessor) SubscribeReorgs(ch chan <- map[int64]types.Hash) typ
 }
 
 func (mp *MessageProcessor) evictOlderThan(n int64) {
-  mp.evictCh <- n
+  select {
+  case mp.evictCh <- n:
+  default:
+  }
 }
 
 // ProcessMessage takes in messages and assembles completed blocks of messages.
 func (mp *MessageProcessor) ProcessMessage(m ResumptionMessage) error {
-  select {
-  case n := <-mp.evictCh:
-    for h, pb := range mp.pendingBatches {
-      if pb.Number < n {
-        delete(mp.pendingBatches, h)
-        mp.oldBlocks[h] = struct{}{}
+  EVICTLOOP:
+  for {
+    select {
+    case n := <-mp.evictCh:
+      for h, pb := range mp.pendingBatches {
+        if pb.Number < n {
+          delete(mp.pendingBatches, h)
+          mp.oldBlocks[h] = struct{}{}
+        }
       }
+    default:
+      break EVICTLOOP
     }
-  default:
   }
   mp.updateResumption(m.Source(), m.Offset())
   hash := types.BytesToHash(m.Key()[1:33])
