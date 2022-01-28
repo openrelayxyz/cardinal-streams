@@ -5,6 +5,7 @@ import (
   "github.com/openrelayxyz/cardinal-types"
   "strings"
   "regexp"
+  "sort"
 )
 
 type batchInfo struct{
@@ -145,12 +146,17 @@ func (p *Producer) SendBatch(batchid types.Hash, delete []string, update map[str
     })
     counter++
   }
-  for k, v := range update {
+  keys := make([]string, 0, len(update))
+  for k := range update {
+    keys = append(keys, k)
+  }
+  sort.Strings(keys)
+  for _, k := range keys {
     topicMessages[bi.topic] = append(
       topicMessages[bi.topic],
       &message{
         key: SubBatchMsgType.GetKey(bi.block.Bytes(), batchid.Bytes(), AvroInt(counter)),
-        value: (&SubBatchRecord{Updates: map[string][]byte{k: v}}).EncodeAvro(),
+        value: (&SubBatchRecord{Updates: map[string][]byte{k: update[k]}}).EncodeAvro(),
       },
     )
     counter++
