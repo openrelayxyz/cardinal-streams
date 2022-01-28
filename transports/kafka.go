@@ -493,6 +493,10 @@ func (kc *KafkaConsumer) Start() error {
           return
         }
         msg := &KafkaResumptionMessage{input}
+        if len(msg.Key()) == 0 {
+          log.Error("Error processing input: malformed message key")
+          continue
+        }
         switch delivery.MessageType(msg.Key()[0]) {
         case delivery.ReorgType:
           if !kc.isReorg{
