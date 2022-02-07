@@ -482,7 +482,7 @@ func (kc *KafkaConsumer) Start() error {
     log.Debug("Ready sent")
     kc.ready = nil
     dl.Close()
-    log.Debug("")
+    delivery.Ready()
   }(&readyWg, &reorgWg)
   go func() {
     for {

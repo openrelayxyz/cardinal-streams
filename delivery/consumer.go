@@ -7,6 +7,7 @@ import (
   "github.com/hashicorp/golang-lru"
   "github.com/openrelayxyz/cardinal-types"
   "github.com/openrelayxyz/cardinal-types/metrics"
+  gmetrics "github.com/rcrowley/go-metrics"
   "github.com/hamba/avro"
   log "github.com/inconshreveable/log15"
   "regexp"
@@ -15,7 +16,8 @@ import (
 )
 
 var (
-  deltaTimer = metrics.NewMajorTimer("/streams/delta")
+  deltaTimer gmetrics.Timer
+  deltaTimerMinor = metrics.NewMinorTimer("/streams/minor/delta")
   pbGauge = metrics.NewMinorGauge("/streams/con/pending")
   messagesGauge = metrics.NewMinorGauge("/streams/con/messages")
 )
@@ -69,7 +71,10 @@ func (pb *PendingBatch) Ready() bool {
 
 // Done should be called on a pending batch after it has been applied.
 func (pb *PendingBatch) Done() {
-  deltaTimer.UpdateSince(pb.time)
+  deltaTimerMinor.UpdateSince(pb.time)
+  if deltaTimer != nil {
+    deltaTimer.UpdateSince(pb.time)
+  }
   log.Debug("Batch applied", "hash", pb.Hash, "number", pb.Number, "delta", time.Since(pb.time))
 }
 
@@ -365,4 +370,13 @@ func (mp *MessageProcessor) resumptionCopy() map[string]int64 {
     m[k] = v
   }
   return m
+}
+
+// Ready should be called when the transport is synced up. This sets up metrics
+// to start recording deltas once caught up, so the catchup process doesn't
+// taint the metrics
+func Ready() {
+  if deltaTimer != nil {
+    deltaTimer = metrics.NewMajorTimer("/streams/delta")
+  }
 }
