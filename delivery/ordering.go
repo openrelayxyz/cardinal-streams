@@ -106,7 +106,12 @@ func (omp *OrderedMessageProcessor) evict(hash types.Hash) {
     omp.mp.evictOlderThan(pb.Number)
     omp.evict(pb.ParentHash) // If the parent is still being tracked we can go ahead and get rid of it
     if children, ok := omp.queued[pb.Hash]; ok {
-      for childHash := range children { omp.evict(childHash) } // Any children of this block that haven't been emitted never will be.
+      for childHash := range children {
+        if !omp.finished.Contains(childHash) {
+          // Any children of this block that haven't been emitted never will be.
+          omp.evict(childHash)
+        }
+      }
       delete(omp.queued, pb.Hash)
     }
   }
