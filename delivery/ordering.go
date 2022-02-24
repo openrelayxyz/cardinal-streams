@@ -72,8 +72,8 @@ func NewOrderedMessageProcessor(lastNumber int64, lastHash types.Hash, lastWeigh
         }
         pendingGauge.Update(int64(len(omp.pending)))
         queuedGauge.Update(int64(len(omp.queued)))
-        log.Debug("OMP Got Pending Batch", "blocknumber", pb.Number, "pending", len(omp.pending), "queued", len(omp.queued), "lastnum", lastBlock, "lasthash", omp.lastHash, "parent", pb.ParentHash)
-        omp.HandlePendingBatch(pb)
+        log.Debug("OMP Got Pending Batch", "blocknumber", pb.Number, "pending", len(omp.pending), "queued", len(omp.queued), "lastnum", lastBlock, "lasthash", omp.lastHash, "parent", pb.ParentHash, "hash", pb.Hash)
+        omp.HandlePendingBatch(pb, false)
       case reorg := <-reorgCh:
         for num, hash := range reorg {
           omp.HandleReorg(num, hash)
@@ -148,7 +148,7 @@ func (omp *OrderedMessageProcessor) SubscribeReorg(ch chan<- map[int64]types.Has
   return omp.reorgFeed.Subscribe(ch)
 }
 
-func (omp *OrderedMessageProcessor) HandlePendingBatch(pb *PendingBatch) {
+func (omp *OrderedMessageProcessor) HandlePendingBatch(pb *PendingBatch, reorg bool) {
   if h, ok := omp.whitelist[uint64(pb.Number)]; ok && h != pb.Hash {
     // If a block is excluded by the whitelist, add it to the blacklist
     omp.blacklist[pb.Hash] = struct{}{}
@@ -162,7 +162,7 @@ func (omp *OrderedMessageProcessor) HandlePendingBatch(pb *PendingBatch) {
     return
   }
   omp.pending[pb.Hash] = pb
-  if omp.finished.Contains(pb.Hash) {
+  if omp.finished.Contains(pb.Hash) && !reorg {
     // We've already handled this block. Repeats should be rare, given how the
     // MessageProcessor works, but they could happen in edge cases, and we
     // should ignore them.
@@ -191,10 +191,12 @@ func (omp *OrderedMessageProcessor) HandlePendingBatch(pb *PendingBatch) {
       // log.Debug("Weight does not justify reorg, but child is available", "child", child)
       // This block's child is already pending, process it instead
       if pb, ok := omp.pending[child]; ok {
-        omp.HandlePendingBatch(pb)
+        omp.HandlePendingBatch(pb, true)
       }
       return
     }
+    // block is not heavy enough for reorg, nor are any of its children, queue for later
+    omp.queue(pb)
   } else {
     if pb.Weight.Cmp(omp.lastWeight) < 0 {
       // If the weight is less than the latest data, we can consider it
@@ -207,9 +209,13 @@ func (omp *OrderedMessageProcessor) HandlePendingBatch(pb *PendingBatch) {
       omp.finished.Add(pb.Hash, struct{}{})
     }
     // Queue for potential later use
-    if _, ok := omp.queued[pb.ParentHash]; !ok { omp.queued[pb.ParentHash] = make(map[types.Hash]struct{}) }
-    omp.queued[pb.ParentHash][pb.Hash] = struct{}{}
+    omp.queue(pb)
   }
+}
+
+func (omp *OrderedMessageProcessor) queue(pb *PendingBatch) {
+  if _, ok := omp.queued[pb.ParentHash]; !ok { omp.queued[pb.ParentHash] = make(map[types.Hash]struct{}) }
+  omp.queued[pb.ParentHash][pb.Hash] = struct{}{}
 }
 
 func (omp *OrderedMessageProcessor) HandleReorg(num int64, hash types.Hash) {
@@ -316,6 +322,7 @@ func (omp *OrderedMessageProcessor) prepareReorg(newHead, oldHead *PendingBatch)
       parentHash := newHead.ParentHash
       newHead, _ = omp.pending[parentHash]
       if newHead == nil {
+        omp.queue(newBlocks[len(newBlocks) - 1])
         return reverted, newBlocks, fmt.Errorf("Block %#x missing from history", parentHash)
       }
       newBlocks = append([]*PendingBatch{newHead}, newBlocks...)

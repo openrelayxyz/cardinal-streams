@@ -181,6 +181,7 @@ func reorgTester(t *testing.T, messages []ResumptionMessage, expectedEvents []ex
   }
   runtime.Gosched()
   omp.Close()
+  fmt.Printf("queued: %v\n", omp.queued)
 
   // log.Info("Results", "outputs", expectedUpdateList(outputs), "leno", len(outputs), "expected", expectedEvents, "lene", len(expectedEvents), "b", len(outputs) == len(expectedEvents))
   if len(outputs) != len(expectedEvents) {
@@ -231,6 +232,8 @@ func TestReorg(t *testing.T) {
   g := getTestBlock(2, 2, b)
   h := getTestBlock(3, 1, g)
   i := getTestBlock(4, 0, h)
+  j := getTestBlock(4, 1, f)
+  k := getTestBlock(5, 0, i)
 
   // g := getTestBlock(4, 0, f.Block.Header())
   if b.parentHash != a.hash { t.Fatalf("b should be child of a") }
@@ -241,6 +244,8 @@ func TestReorg(t *testing.T) {
   if g.parentHash != b.hash { t.Fatalf("g should be child of b") }
   if h.parentHash != g.hash { t.Fatalf("h should be child of g") }
   if i.parentHash != h.hash { t.Fatalf("i should be child of h") }
+  if j.parentHash != f.hash { t.Fatalf("j should be child of f") }
+  if k.parentHash != i.hash { t.Fatalf("k should be child of i") }
   // if g.Block.ParentHash() != f.Hash { t.Fatalf("g should be child of e") }
 
   // // TODO: Try more out-of-order messages (instead of whole out-of-order blocks)
@@ -297,6 +302,42 @@ func TestReorg(t *testing.T) {
         []expectedUpdate{
           expectedUpdate{added: []types.Hash{b.hash, e.hash, f.hash}, removed: []types.Hash{}},
           expectedUpdate{added: []types.Hash{g.hash, h.hash, i.hash}, removed: []types.Hash{e.hash, f.hash}},
+        },
+        a,
+      )
+  })
+  t.Run("Reorg AEGFHIB", func(t *testing.T) {
+      reorgTester(
+        t,
+        append(append(append(append(append(append(a.Messages(t, p), e.Messages(t, p)...), g.Messages(t, p)...), f.Messages(t, p)...), h.Messages(t, p)...), i.Messages(t, p)...), b.Messages(t, p)...),
+        []expectedUpdate{
+          expectedUpdate{added: []types.Hash{b.hash, g.hash, h.hash, i.hash}, removed: []types.Hash{}},
+        },
+        a,
+      )
+  })
+  t.Run("Reorg AEFHIGB", func(t *testing.T) {
+      reorgTester(
+        t,
+        append(append(append(append(append(append(a.Messages(t, p), e.Messages(t, p)...), f.Messages(t, p)...), h.Messages(t, p)...), i.Messages(t, p)...), g.Messages(t, p)...), b.Messages(t, p)...),
+        []expectedUpdate{
+          expectedUpdate{added: []types.Hash{b.hash, g.hash, h.hash, i.hash}, removed: []types.Hash{}},
+        },
+        a,
+      )
+  })
+  t.Run("Reorg ABEFJHIKG", func(t *testing.T) {
+    fmt.Println("******************************")
+    defer fmt.Println("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+      reorgTester(
+        t,
+        append(append(append(append(append(append(append(append(a.Messages(t, p), b.Messages(t, p)...), e.Messages(t, p)...), f.Messages(t, p)...), j.Messages(t, p)...), h.Messages(t, p)...), i.Messages(t, p)...), k.Messages(t, p)...), g.Messages(t, p)...),
+        []expectedUpdate{
+          expectedUpdate{added: []types.Hash{b.hash}, removed: []types.Hash{}},
+          expectedUpdate{added: []types.Hash{e.hash}, removed: []types.Hash{}},
+          expectedUpdate{added: []types.Hash{f.hash}, removed: []types.Hash{}},
+          expectedUpdate{added: []types.Hash{j.hash}, removed: []types.Hash{}},
+          expectedUpdate{added: []types.Hash{g.hash, h.hash, i.hash, k.hash}, removed: []types.Hash{e.hash, f.hash, j.hash}},
         },
         a,
       )
