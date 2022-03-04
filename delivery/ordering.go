@@ -180,7 +180,7 @@ func (omp *OrderedMessageProcessor) HandlePendingBatch(pb *PendingBatch, reorg b
       // Evaluate Reorg
       removed, added, err := omp.prepareReorg(pb, omp.pending[omp.lastHash])
       if err != nil {
-        log.Error("Error finding common ancestor", "new", pb.Hash, "old", omp.lastHash, "error", err)
+        log.Error("Error finding common ancestor", "new", pb.Hash, "number", pb.Number, "old", omp.lastHash, "error", err)
         return
       }
       omp.prepareEmit(added, removed)
@@ -193,6 +193,7 @@ func (omp *OrderedMessageProcessor) HandlePendingBatch(pb *PendingBatch, reorg b
       if pb, ok := omp.pending[child]; ok {
         omp.HandlePendingBatch(pb, true)
       }
+      omp.queue(pb)
       return
     }
     // block is not heavy enough for reorg, nor are any of its children, queue for later

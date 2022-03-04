@@ -211,6 +211,14 @@ func reorgTester(t *testing.T, messages []ResumptionMessage, expectedEvents []ex
   }
 }
 
+func assembleMessages(t *testing.T, p *Producer, updates ...*testUpdate) []ResumptionMessage {
+  results := []ResumptionMessage{}
+  for _, m := range updates {
+    results = append(results, m.Messages(t, p)...)
+  }
+  return results
+}
+
 func TestReorg(t *testing.T) {
   p, err := NewProducer(
     "default",
@@ -224,6 +232,12 @@ func TestReorg(t *testing.T) {
   if err != nil { t. Fatalf(err.Error()) }
 
   a := getTestBlock(0, 0, nil)
+  chain1 := []*testUpdate{a}
+  chain2 := []*testUpdate{a}
+  for i := 1; i < 100; i ++ {
+    chain1 = append(chain1, getTestBlock(int64(i), 1, chain1[i-1]))
+    chain2 = append(chain2, getTestBlock(int64(i), 2, chain2[i-1]))
+  }
   b := getTestBlock(1, 0, a)
   c := getTestBlock(1, 1, a)
   d := getTestBlock(2, 1, c)
@@ -253,7 +267,7 @@ func TestReorg(t *testing.T) {
     // log.Info("Hashes", "a", a.hash, "b", b.hash, "c", c.hash, "d", d.hash)
     reorgTester(
       t,
-      append(append(append(a.Messages(t, p), b.Messages(t, p)...), c.Messages(t, p)...), d.Messages(t, p)...),
+      assembleMessages(t, p, a, b, c, d),
       []expectedUpdate{
         expectedUpdate{added: []types.Hash{b.hash}},
         expectedUpdate{added: []types.Hash{c.hash, d.hash}, removed: []types.Hash{b.hash}},
@@ -264,7 +278,7 @@ func TestReorg(t *testing.T) {
   t.Run("Reorg ABDC", func(t *testing.T) {
     reorgTester(
       t,
-      append(append(append(a.Messages(t, p), b.Messages(t, p)...), d.Messages(t, p)...), c.Messages(t, p)...),
+      assembleMessages(t, p, a, b, d, c),
       []expectedUpdate{
         expectedUpdate{added: []types.Hash{b.hash}},
         expectedUpdate{added: []types.Hash{c.hash, d.hash}, removed: []types.Hash{b.hash}},
@@ -275,7 +289,7 @@ func TestReorg(t *testing.T) {
   t.Run("Reorg ACDB", func(t *testing.T) {
     reorgTester(
       t,
-      append(append(append(a.Messages(t, p), c.Messages(t, p)...), d.Messages(t, p)...), b.Messages(t, p)...),
+      assembleMessages(t, p, a, c, d, b),
       []expectedUpdate{
         expectedUpdate{added: []types.Hash{c.hash}},
         expectedUpdate{added: []types.Hash{d.hash}},
@@ -286,7 +300,7 @@ func TestReorg(t *testing.T) {
   t.Run("Reorg ABCDEF", func(t *testing.T) {
     reorgTester(
       t,
-      append(append(append(append(append(a.Messages(t, p), b.Messages(t, p)...), c.Messages(t, p)...), d.Messages(t, p)...), e.Messages(t, p)...), f.Messages(t, p)...),
+      assembleMessages(t, p, a, b, c, d, e, f),
       []expectedUpdate{
         expectedUpdate{added: []types.Hash{b.hash}},
         expectedUpdate{added: []types.Hash{c.hash, d.hash}, removed: []types.Hash{b.hash}},
@@ -298,7 +312,7 @@ func TestReorg(t *testing.T) {
   t.Run("Reorg AEGFBHI", func(t *testing.T) {
       reorgTester(
         t,
-        append(append(append(append(append(append(a.Messages(t, p), e.Messages(t, p)...), g.Messages(t, p)...), f.Messages(t, p)...), b.Messages(t, p)...), h.Messages(t, p)...), i.Messages(t, p)...),
+        assembleMessages(t, p, a, e, g, f, b, h, i),
         []expectedUpdate{
           expectedUpdate{added: []types.Hash{b.hash, e.hash, f.hash}, removed: []types.Hash{}},
           expectedUpdate{added: []types.Hash{g.hash, h.hash, i.hash}, removed: []types.Hash{e.hash, f.hash}},
@@ -309,7 +323,7 @@ func TestReorg(t *testing.T) {
   t.Run("Reorg AEGFHIB", func(t *testing.T) {
       reorgTester(
         t,
-        append(append(append(append(append(append(a.Messages(t, p), e.Messages(t, p)...), g.Messages(t, p)...), f.Messages(t, p)...), h.Messages(t, p)...), i.Messages(t, p)...), b.Messages(t, p)...),
+        assembleMessages(t, p, a, e, g, f, h, i, b),
         []expectedUpdate{
           expectedUpdate{added: []types.Hash{b.hash, g.hash, h.hash, i.hash}, removed: []types.Hash{}},
         },
@@ -319,7 +333,7 @@ func TestReorg(t *testing.T) {
   t.Run("Reorg AEFHIGB", func(t *testing.T) {
       reorgTester(
         t,
-        append(append(append(append(append(append(a.Messages(t, p), e.Messages(t, p)...), f.Messages(t, p)...), h.Messages(t, p)...), i.Messages(t, p)...), g.Messages(t, p)...), b.Messages(t, p)...),
+        assembleMessages(t, p, a, e, f, h, i, g, b),
         []expectedUpdate{
           expectedUpdate{added: []types.Hash{b.hash, g.hash, h.hash, i.hash}, removed: []types.Hash{}},
         },
@@ -327,11 +341,67 @@ func TestReorg(t *testing.T) {
       )
   })
   t.Run("Reorg ABEFJHIKG", func(t *testing.T) {
-    fmt.Println("******************************")
-    defer fmt.Println("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
       reorgTester(
         t,
-        append(append(append(append(append(append(append(append(a.Messages(t, p), b.Messages(t, p)...), e.Messages(t, p)...), f.Messages(t, p)...), j.Messages(t, p)...), h.Messages(t, p)...), i.Messages(t, p)...), k.Messages(t, p)...), g.Messages(t, p)...),
+        assembleMessages(t, p, a, b, e, f, j, h, i, k, g),
+        []expectedUpdate{
+          expectedUpdate{added: []types.Hash{b.hash}, removed: []types.Hash{}},
+          expectedUpdate{added: []types.Hash{e.hash}, removed: []types.Hash{}},
+          expectedUpdate{added: []types.Hash{f.hash}, removed: []types.Hash{}},
+          expectedUpdate{added: []types.Hash{j.hash}, removed: []types.Hash{}},
+          expectedUpdate{added: []types.Hash{g.hash, h.hash, i.hash, k.hash}, removed: []types.Hash{e.hash, f.hash, j.hash}},
+        },
+        a,
+      )
+  })
+  t.Run("Reorg ABEFJGIKH", func(t *testing.T) {
+      reorgTester(
+        t,
+        assembleMessages(t, p, a, b, e, f, j, g, i, k, h),
+        []expectedUpdate{
+          expectedUpdate{added: []types.Hash{b.hash}, removed: []types.Hash{}},
+          expectedUpdate{added: []types.Hash{e.hash}, removed: []types.Hash{}},
+          expectedUpdate{added: []types.Hash{f.hash}, removed: []types.Hash{}},
+          expectedUpdate{added: []types.Hash{j.hash}, removed: []types.Hash{}},
+          expectedUpdate{added: []types.Hash{g.hash, h.hash, i.hash, k.hash}, removed: []types.Hash{e.hash, f.hash, j.hash}},
+        },
+        a,
+      )
+  })
+  t.Run("Reorg ABEFJGHIK", func(t *testing.T) {
+      reorgTester(
+        t,
+        assembleMessages(t, p, a, b, e, f, j, g, h, i, k),
+        []expectedUpdate{
+          expectedUpdate{added: []types.Hash{b.hash}, removed: []types.Hash{}},
+          expectedUpdate{added: []types.Hash{e.hash}, removed: []types.Hash{}},
+          expectedUpdate{added: []types.Hash{f.hash}, removed: []types.Hash{}},
+          expectedUpdate{added: []types.Hash{j.hash}, removed: []types.Hash{}},
+          expectedUpdate{added: []types.Hash{g.hash, h.hash, i.hash, k.hash}, removed: []types.Hash{e.hash, f.hash, j.hash}},
+        },
+        a,
+      )
+  })
+  t.Run("Reorg ABEFJIKHG", func(t *testing.T) {
+    fmt.Println("***********************")
+    defer fmt.Println("----------------------")
+      reorgTester(
+        t,
+        assembleMessages(t, p, a, b, e, f, j, i, k, h, g),
+        []expectedUpdate{
+          expectedUpdate{added: []types.Hash{b.hash}, removed: []types.Hash{}},
+          expectedUpdate{added: []types.Hash{e.hash}, removed: []types.Hash{}},
+          expectedUpdate{added: []types.Hash{f.hash}, removed: []types.Hash{}},
+          expectedUpdate{added: []types.Hash{j.hash}, removed: []types.Hash{}},
+          expectedUpdate{added: []types.Hash{g.hash, h.hash, i.hash, k.hash}, removed: []types.Hash{e.hash, f.hash, j.hash}},
+        },
+        a,
+      )
+  })
+  t.Run("Reorg ABEFJGHKI", func(t *testing.T) {
+      reorgTester(
+        t,
+        assembleMessages(t, p, a, b, e, f, j, g, h, k, i),
         []expectedUpdate{
           expectedUpdate{added: []types.Hash{b.hash}, removed: []types.Hash{}},
           expectedUpdate{added: []types.Hash{e.hash}, removed: []types.Hash{}},
@@ -345,7 +415,7 @@ func TestReorg(t *testing.T) {
   t.Run("Reorg adc", func(t *testing.T) {
     reorgTester(
       t,
-      append(append(a.Messages(t, p), d.Messages(t, p)...), c.Messages(t, p)...),
+      assembleMessages(t, p, a, d, c),
       []expectedUpdate{
         expectedUpdate{added: []types.Hash{c.hash, d.hash}, removed: []types.Hash{}},
       },
@@ -355,12 +425,62 @@ func TestReorg(t *testing.T) {
   t.Run("Reorg start(c) ACDBEF", func(t *testing.T) {
     reorgTester(
       t,
-      append(append(append(append(append(a.Messages(t, p), c.Messages(t, p)...), d.Messages(t, p)...), b.Messages(t, p)...), e.Messages(t,p)...), f.Messages(t,p)...),
+      assembleMessages(t, p, a, c, d, b, e, f),
       []expectedUpdate{
         expectedUpdate{added: []types.Hash{d.hash}, removed: []types.Hash{}},
         expectedUpdate{added: []types.Hash{b.hash, e.hash, f.hash}, removed: []types.Hash{c.hash, d.hash}},
       },
       c,
+    )
+  })
+  t.Run("Reorg chain1[:50] -> chain2[:53]", func(t *testing.T) {
+    expectations := []expectedUpdate{}
+    for _, item := range chain1[1:50] {
+      expectations = append(
+        expectations,
+        expectedUpdate{added: []types.Hash{item.hash}, removed: []types.Hash{}},
+      )
+    }
+    finalExpectation := expectedUpdate{
+      added: []types.Hash{},
+      removed: []types.Hash{},
+    }
+    for _, item := range chain2[1:54] {
+      finalExpectation.added = append(finalExpectation.added, item.hash)
+    }
+    for _, item := range chain1[1:50] {
+      finalExpectation.removed = append(finalExpectation.removed, item.hash)
+    }
+    reorgTester(
+      t,
+      append(append(append(assembleMessages(t, p, chain1[:50]...), assembleMessages(t, p, chain2[:25]...)...), assembleMessages(t, p, chain2[30:53]...)...), assembleMessages(t, p, chain2[25], chain2[26], chain2[27], chain2[28], chain2[53], chain2[29])...),
+      append(expectations, finalExpectation),
+      a,
+    )
+  })
+  t.Run("Reorg chain1[:6] -> chain2[5,6,3,4,1,2]", func(t *testing.T) {
+    expectations := []expectedUpdate{}
+    for _, item := range chain1[1:6] {
+      expectations = append(
+        expectations,
+        expectedUpdate{added: []types.Hash{item.hash}, removed: []types.Hash{}},
+      )
+    }
+    finalExpectation := expectedUpdate{
+      added: []types.Hash{},
+      removed: []types.Hash{},
+    }
+    for _, item := range chain2[1:7] {
+      finalExpectation.added = append(finalExpectation.added, item.hash)
+    }
+    for _, item := range chain1[1:6] {
+      finalExpectation.removed = append(finalExpectation.removed, item.hash)
+    }
+    reorgTester(
+      t,
+      append(assembleMessages(t, p, chain1[:6]...), assembleMessages(t, p, chain2[5], chain2[6], chain2[3], chain2[4], chain2[1], chain2[2])...),
+      append(expectations, finalExpectation),
+      a,
     )
   })
 }
