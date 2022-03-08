@@ -421,6 +421,8 @@ func (kc *KafkaConsumer) Start() error {
       }
       log.Info("Starting partition consumer", "topic", topic, "partition", partid, "offset", offset, "startOffset", startOffset)
       go func(pc sarama.PartitionConsumer, startOffset int64, partid int32, i int, topic string) {
+        kc.shutdownWg.Add(1)
+        defer kc.shutdownWg.Done()
         dl.Add(i)
         var once sync.Once
         warm := false
@@ -489,7 +491,6 @@ func (kc *KafkaConsumer) Start() error {
       select {
       case input, ok := <-messages:
         if !ok {
-          kc.shutdownWg.Done()
           return
         }
         msg := &KafkaResumptionMessage{input}
@@ -552,6 +553,7 @@ func (kc *KafkaConsumer) Start() error {
           for _, c := range partitionConsumers {
             c.Close()
           }
+          kc.shutdownWg.Wait()
           close(messages)
         }()
       }
@@ -572,7 +574,6 @@ func (kc *KafkaConsumer) SubscribeReorg(ch chan<- map[int64]types.Hash) types.Su
   return kc.omp.SubscribeReorg(ch)
 }
 func (kc *KafkaConsumer) Close() {
-  kc.shutdownWg.Add(1)
   kc.quit <- struct{}{}
   kc.shutdownWg.Wait()
 }
