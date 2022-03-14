@@ -249,7 +249,9 @@ func (mp *MessageProcessor) ProcessMessage(m ResumptionMessage) error {
       return err
     }
     mp.oldBlocks = make(map[types.Hash]struct{})
-    if err := avro.Unmarshal(intSchema, m.Value(), &mp.lastEmittedNum); err != nil { return err }
+    var num int
+    if err := avro.Unmarshal(intSchema, m.Value(), &num); err != nil { return err }
+    mp.lastEmittedNum = int64(num)
     mp.reorgFeed.Send(map[int64]types.Hash{mp.lastEmittedNum: hash})
     return nil
   }

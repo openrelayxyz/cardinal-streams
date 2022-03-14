@@ -240,3 +240,45 @@ func TestShuffledDupsMultiBlock(t *testing.T) {
   default:
   }
 }
+
+
+func TestConsumerReorg(t *testing.T) {
+  p, err := NewProducer(
+    "default",
+    map[string]string{
+      "foo/": "foo",
+      "bar/[^/]+/baz/": "bar",
+      "state/thing": "state",
+    },
+  )
+  if err != nil { t.Errorf(err.Error()) }
+  mp := NewMessageProcessor(0, 128, []*regexp.Regexp{regexp.MustCompile(".*")})
+  msgs, err := p.AddBlock(
+    0,
+    types.HexToHash("01"),
+    types.HexToHash("00"),
+    new(big.Int),
+    map[string][]byte{
+      "foo/something": []byte("gnihtemos/oof"),
+      "bar/whatever/baz/stuff": []byte("data"),
+      "default/thing": []byte("defaulttopic"),
+    },
+    map[string]struct{}{
+      "foo/delete": struct{}{},
+      "bar/delete/baz/thing": struct{}{},
+      "default/delete": struct{}{},
+    },
+    map[string]types.Hash{
+      "state/": types.HexToHash("ff"),
+    },
+  )
+  for _, msg := range toTestResumptionMessage(msgs) {
+    if err := mp.ProcessMessage(msg); err != nil { t.Errorf(err.Error()) }
+  }
+  if err := mp.ProcessMessage(&testResumptionMessage{Message: p.Reorg(0, types.HexToHash("00")), offset: 19, source: "reorg"}); err != nil {
+    t.Errorf(err.Error())
+  }
+  if err := mp.ProcessMessage(&testResumptionMessage{Message: p.ReorgDone(0, types.HexToHash("00")), offset: 20, source: "reorg"}); err != nil {
+    t.Errorf(err.Error())
+  }
+}
