@@ -202,7 +202,7 @@ func reorgTester(t *testing.T, messages []ResumptionMessage, expectedEvents []ex
   for i, chainEvents := range expectedEvents {
     if len(chainEvents.added) != len(outputs[i].added) { t.Fatalf("Expected events[%v]: %v added, got %v (%v != %v)", i, len(chainEvents.added), len(outputs[i].added), chainEvents.added, hashList(outputs[i].added))}
     for j, hash := range chainEvents.added {
-      if hash != outputs[i].added[j].Hash { t.Errorf("Got new chain events out of order o[%v][%v]", i, j) }
+      if hash != outputs[i].added[j].Hash { t.Errorf("Got new chain events out of order o[%v][%v] expected %v got %v", i, j, hash, outputs[i].added[j].Hash) }
     }
     if len(chainEvents.removed) != len(outputs[i].removed) { t.Fatalf("Expected events[%v]: %v Reverted, got %v", i, len(chainEvents.removed), len(outputs[i].removed))}
     for j, hash := range chainEvents.removed {
@@ -383,8 +383,6 @@ func TestReorg(t *testing.T) {
       )
   })
   t.Run("Reorg ABEFJIKHG", func(t *testing.T) {
-    fmt.Println("***********************")
-    defer fmt.Println("----------------------")
       reorgTester(
         t,
         assembleMessages(t, p, a, b, e, f, j, i, k, h, g),
@@ -481,6 +479,44 @@ func TestReorg(t *testing.T) {
       append(assembleMessages(t, p, chain1[:6]...), assembleMessages(t, p, chain2[5], chain2[6], chain2[3], chain2[4], chain2[1], chain2[2])...),
       append(expectations, finalExpectation),
       a,
+    )
+  })
+  t.Run("Startup Reorg", func(t *testing.T) {
+    finalExpectation := expectedUpdate{
+      added: []types.Hash{},
+      removed: []types.Hash{},
+    }
+    for _, item := range chain2[1:8] {
+      finalExpectation.added = append(finalExpectation.added, item.hash)
+    }
+    for _, item := range chain1[1:7] {
+      finalExpectation.removed = append(finalExpectation.removed, item.hash)
+    }
+    expectations := []expectedUpdate{finalExpectation}
+    reorgTester(
+      t,
+      append(assembleMessages(t, p, chain1[:7]...), assembleMessages(t, p, chain2[:8]...)...),
+      expectations,
+      chain1[6],
+    )
+  })
+  t.Run("Startup Reorg OO", func(t *testing.T) {
+    finalExpectation := expectedUpdate{
+      added: []types.Hash{},
+      removed: []types.Hash{},
+    }
+    for _, item := range chain2[1:9] {
+      finalExpectation.added = append(finalExpectation.added, item.hash)
+    }
+    for _, item := range chain1[1:7] {
+      finalExpectation.removed = append(finalExpectation.removed, item.hash)
+    }
+    expectations := []expectedUpdate{finalExpectation}
+    reorgTester(
+      t,
+      append(append(assembleMessages(t, p, chain1[:6]...), assembleMessages(t, p, chain2[:8]...)...), assembleMessages(t, p, chain1[6], chain2[8])...),
+      expectations,
+      chain1[6],
     )
   })
 }

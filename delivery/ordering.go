@@ -169,22 +169,27 @@ func (omp *OrderedMessageProcessor) HandlePendingBatch(pb *PendingBatch, reorg b
     return
   } else if pb.ParentHash == omp.lastHash {
     // Emit now
+    log.Debug("Emitting next child")
     omp.prepareEmit([]*PendingBatch{pb}, []*PendingBatch{})
     return
   } else if omp.lastHash == (types.Hash{}) {
     // Initialized without a lastHash; emit the first block we see.
+    log.Debug("Initialized without a lasthash")
     omp.prepareEmit([]*PendingBatch{pb}, []*PendingBatch{})
     return
   } else if omp.finished.Contains(pb.ParentHash) {
-    if pb.Weight.Cmp(omp.lastWeight) > 0 {
-      // Evaluate Reorg
-      removed, added, err := omp.prepareReorg(pb, omp.pending[omp.lastHash])
-      if err != nil {
-        log.Error("Error finding common ancestor", "new", pb.Hash, "number", pb.Number, "old", omp.lastHash, "error", err)
+    if lastBlock, ok := omp.pending[omp.lastHash]; ok {
+      if pb.Weight.Cmp(omp.lastWeight) > 0 {
+        // Evaluate Reorg
+        removed, added, err := omp.prepareReorg(pb, lastBlock)
+        if err != nil {
+          log.Error("Error finding common ancestor", "new", pb.Hash, "number", pb.Number, "old", omp.lastHash, "error", err)
+          return
+        }
+        log.Debug("Emitting reorg")
+        omp.prepareEmit(added, removed)
         return
       }
-      omp.prepareEmit(added, removed)
-      return
     }
     omp.finished.Add(pb.Hash, struct{}{})
     if child, ok := omp.getPendingChild(pb.Hash); ok {
