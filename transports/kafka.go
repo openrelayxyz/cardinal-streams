@@ -389,7 +389,6 @@ func (kc *KafkaConsumer) Start() error {
   dl := drumline.NewDrumline(256)
   consumer, err := sarama.NewConsumerFromClient(kc.client)
   if err != nil { return err }
-  hwmarks := consumer.HighWaterMarks()
   var readyWg, warmupWg, reorgWg sync.WaitGroup
   messages := make(chan *sarama.ConsumerMessage, 512) // 512 is arbitrary. Worked for Flume, but may require tuning for Cardinal
   partitionConsumers := []sarama.PartitionConsumer{}
@@ -406,8 +405,13 @@ func (kc *KafkaConsumer) Start() error {
         if kc.startHash == (types.Hash{}) && kc.rollback >= 0 {
           // An empty hash indicates an intention to start tracking the feed
           // now, so we should not add historical messages.
-          offset = hwmarks[topic][partid]
-          startOffset = offset - 1
+          offset, err = kc.client.GetOffset(topic, partid, sarama.OffsetNewest)
+          if err != nil {
+            offset = sarama.OffsetNewest
+            startOffset = offset
+          } else {
+            startOffset = offset - 1
+          }
         } else {
           offset = sarama.OffsetOldest
           startOffset = offset
