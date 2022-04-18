@@ -282,10 +282,13 @@ func (kp *KafkaProducer) LatestBlockFromFeed() (int64, error) {
   if err != nil { return 0, err }
   partitions, err := consumer.Partitions(kp.defaultTopic)
   if err != nil { return 0, err }
-  hwm := consumer.HighWaterMarks()
   var highestNumber int64
   for _, partid := range partitions {
-    offset := hwm[kp.defaultTopic][partid]
+    offset, err := client.GetOffset(kp.defaultTopic, partid, sarama.OffsetNewest)
+    if err != nil {
+      log.Info("Failed to get offset", "topic", kp.defaultTopic, "partition", partid)
+      continue
+    }
     if offset == 0 { continue }
     offset -= 100
     if offset < 0 { offset = sarama.OffsetOldest }
@@ -295,12 +298,15 @@ func (kp *KafkaProducer) LatestBlockFromFeed() (int64, error) {
       if err != nil { return 0, err }
     }
     for input := range pc.Messages() {
-      if pc.HighWaterMarkOffset() - input.Offset <= 1 {
+      if hwm := pc.HighWaterMarkOffset(); hwm - input.Offset <= 1 {
         pc.AsyncClose()
       }
-      if delivery.MessageType(input.Key[0]) == delivery.BatchMsgType {
+      if delivery.MessageType(input.Key[0]) == delivery.BatchType {
         b, err := delivery.UnmarshalBatch(input.Value)
-        if err != nil { continue }
+        if err != nil {
+          log.Warn("Error unmarshalling batch", "err", err)
+          continue
+        }
         if b.Number > highestNumber { highestNumber = b.Number }
       }
     }
