@@ -210,6 +210,7 @@ func (omp *OrderedMessageProcessor) HandlePendingBatch(pb *PendingBatch, reorg b
       // evicted
       if latestBlock := omp.pending[omp.lastHash]; latestBlock != nil && latestBlock.Number - pb.Number > omp.reorgThreshold {
         log.Info("OMP: Discarding old block", "current", latestBlock.Number, "received", pb.Number)
+        delete(omp.pending, pb.Hash)
         return
       }
       omp.finished.Add(pb.Hash, struct{}{})
