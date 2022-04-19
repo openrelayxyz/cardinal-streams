@@ -297,6 +297,7 @@ func (kp *KafkaProducer) LatestBlockFromFeed() (int64, error) {
       pc, err = consumer.ConsumePartition(kp.defaultTopic, partid, sarama.OffsetOldest)
       if err != nil { return 0, err }
     }
+    PARTITION_LOOP:
     for {
       select {
       case input := <-pc.Messages():
@@ -313,7 +314,7 @@ func (kp *KafkaProducer) LatestBlockFromFeed() (int64, error) {
         }
       case <-time.NewTimer(time.Second).C:
         log.Info("No messages available on partition", "topic", kp.defaultTopic, "partition", partid)
-        break
+        break PARTITION_LOOP
       }
     }
   }
