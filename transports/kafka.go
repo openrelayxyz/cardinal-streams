@@ -301,6 +301,7 @@ func (kp *KafkaProducer) LatestBlockFromFeed() (int64, error) {
     for {
       select {
       case input := <-pc.Messages():
+        if input == nil { break PARTITION_LOOP }
         if hwm := pc.HighWaterMarkOffset(); hwm - input.Offset <= 1 {
           pc.AsyncClose()
         }
