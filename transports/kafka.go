@@ -297,17 +297,23 @@ func (kp *KafkaProducer) LatestBlockFromFeed() (int64, error) {
       pc, err = consumer.ConsumePartition(kp.defaultTopic, partid, sarama.OffsetOldest)
       if err != nil { return 0, err }
     }
-    for input := range pc.Messages() {
-      if hwm := pc.HighWaterMarkOffset(); hwm - input.Offset <= 1 {
-        pc.AsyncClose()
-      }
-      if delivery.MessageType(input.Key[0]) == delivery.BatchType {
-        b, err := delivery.UnmarshalBatch(input.Value)
-        if err != nil {
-          log.Warn("Error unmarshalling batch", "err", err)
-          continue
+    for {
+      select {
+      case input := <-pc.Messages():
+        if hwm := pc.HighWaterMarkOffset(); hwm - input.Offset <= 1 {
+          pc.AsyncClose()
         }
-        if b.Number > highestNumber { highestNumber = b.Number }
+        if delivery.MessageType(input.Key[0]) == delivery.BatchType {
+          b, err := delivery.UnmarshalBatch(input.Value)
+          if err != nil {
+            log.Warn("Error unmarshalling batch", "err", err)
+            continue
+          }
+          if b.Number > highestNumber { highestNumber = b.Number }
+        }
+      case <-time.NewTimer(time.Second).C:
+        log.Info("No messages available on partition", "topic", kp.defaultTopic, "partition", partid)
+        break
       }
     }
   }
