@@ -12,7 +12,10 @@ import (
 	"github.com/openrelayxyz/cardinal-streams/delivery"
 	log "github.com/inconshreveable/log15"
 	"context"
+	"net/url"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -56,6 +59,28 @@ type transportSubbatch struct {
 type reorgData struct {
 	Hash types.Hash `json:"hash"`
 	Number hexutil.Uint64 `json:"number"`
+}
+
+func NewWebsocketProducer(wsurl string, resumer StreamsResumption) (Producer, error) {
+	if resumer == nil {
+		return nil, fmt.Errorf("websockets producer requires a non-nil resumer")
+	}
+	parsedUrl, err := url.Parse(wsurl)
+	if err != nil {
+		return nil, err
+	}
+	switch parsedUrl.Scheme {
+	case "wss", "ws":
+	default:
+		return nil, fmt.Errorf("unknown protocol")
+	}
+	p := &websocketProducer{
+		resumer: resumer,
+		expectedBatches: make(map[types.Hash]types.Hash),
+	}
+	port, err := strconv.Atoi(parsedUrl.Port())
+	if err != nil { return nil, err }
+	return p, p.Serve(int64(port))
 }
 
 func (p *websocketProducer) Serve(port int64) error {
@@ -204,6 +229,10 @@ type websocketConsumer struct {
 	lastNum hexutil.Uint64
 	lastHash types.Hash
 	prefixes []string
+}
+
+func newWebsocketConsumer(omp *delivery.OrderedMessageProcessor, url string, prefixes []string, lastNum int64, lastHash types.Hash) (Consumer, error) {
+	return &websocketConsumer{url: strings.TrimPrefix(url, "cardinal://"), omp: omp, ready: make(chan struct{}), lastNum: hexutil.Uint64(lastNum), lastHash: lastHash}, nil
 }
 
 func (c *websocketConsumer) Start() error {
