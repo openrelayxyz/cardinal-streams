@@ -94,6 +94,7 @@ func (p *websocketProducer) Serve(port int64) error {
 func (p *websocketProducer) Service() interface{} {
 	return &websocketStreamsService{
 		feed: p.feed,
+		resumer: p.resumer,
 	}
 }
 
