@@ -86,6 +86,7 @@ func NewWebsocketProducer(wsurl string, resumer StreamsResumption) (Producer, er
 func (p *websocketProducer) Serve(port int64) error {
 	tm := transports.NewTransportManager(32)
 	tm.Register("cardinal", p.Service())
+	tm.AddWSServer(port)
 	go tm.Run(0)
 	return nil
 }
