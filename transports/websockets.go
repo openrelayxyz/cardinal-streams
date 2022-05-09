@@ -13,7 +13,6 @@ import (
 	log "github.com/inconshreveable/log15"
 	"context"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -24,7 +23,8 @@ type StreamsResumption interface {
 	// subbatches, so the PendingBatches must include all values. BlocksFrom
 	// should watch for context.Done() and stop producing blocks if the context
 	// finishes before
-  BlocksFrom(ctx context.Context, block uint64, hash types.Hash, prefixes []regexp.Regexp) (chan *delivery.PendingBatch, error)
+  BlocksFrom(ctx context.Context, block uint64, hash types.Hash) (chan *delivery.PendingBatch, error)
+  GetBlock(ctx context.Context, block uint64) (*delivery.PendingBatch)
 }
 
 type websocketProducer struct {
@@ -159,14 +159,33 @@ type websocketStreamsService struct {
 	resumer StreamsResumption
 }
 
-func (s *websocketStreamsService) Streams(ctx context.Context, number hexutil.Uint64, hash types.Hash, prefixes []string) (<-chan *resultMessage, error) {
-	prefixRegex := make([]regexp.Regexp, len(prefixes))
-	for i, prefix := range prefixes {
-		p, err := regexp.Compile(prefix)
-		if err != nil { return nil, err }
-		prefixRegex[i] = *p
+func (s *websocketStreamsService) StreamsBlock(ctx context.Context, number hexutil.Uint64) (*resultMessage, error) {
+	block := s.resumer.GetBlock(ctx, uint64(number))
+	if block != nil { return nil, fmt.Errorf("block not found") }
+	values := make(map[string]hexutil.Bytes)
+	deletes := make([]string, 0, len(block.Deletes))
+	for k, v := range block.Values {
+		values[k] = hexutil.Bytes(v)
 	}
-	initBlocks, err := s.resumer.BlocksFrom(ctx, uint64(number), hash, prefixRegex)
+	for k, _ := range block.Deletes {
+		deletes = append(deletes, k)
+	}
+	return &resultMessage{
+		Type: "batch",
+		Batch: &transportBatch{
+			Number: hexutil.Uint64(uint64(block.Number)),
+			Weight: (*hexutil.Big)(block.Weight),
+			Hash: block.Hash,
+			ParentHash: block.ParentHash,
+			Batches: make(map[string]types.Hash),
+			Values: values,
+			Deletes: deletes,
+		},
+	}, nil
+}
+
+func (s *websocketStreamsService) Streams(ctx context.Context, number hexutil.Uint64, hash types.Hash) (<-chan *resultMessage, error) {
+	initBlocks, err := s.resumer.BlocksFrom(ctx, uint64(number), hash)
 	if err != nil {
 		return nil, err
 	}
@@ -228,10 +247,9 @@ type websocketConsumer struct {
 	quit bool
 	lastNum hexutil.Uint64
 	lastHash types.Hash
-	prefixes []string
 }
 
-func newWebsocketConsumer(omp *delivery.OrderedMessageProcessor, url string, prefixes []string, lastNum int64, lastHash types.Hash) (Consumer, error) {
+func newWebsocketConsumer(omp *delivery.OrderedMessageProcessor, url string, lastNum int64, lastHash types.Hash) (Consumer, error) {
 	return &websocketConsumer{url: strings.TrimPrefix(url, "cardinal://"), omp: omp, ready: make(chan struct{}), lastNum: hexutil.Uint64(lastNum), lastHash: lastHash}, nil
 }
 
@@ -251,7 +269,7 @@ func (c *websocketConsumer) Start() error {
 			batches := make(map[types.Hash]*delivery.PendingBatch)
 			subbatches := make(map[types.Hash]*transportSubbatch)
 			pendingSubbatches := make(map[types.Hash]map[types.Hash]struct{})
-			call, err := rpc.NewCall("cardinal_subscribe", "streams", c.lastNum, c.lastHash, c.prefixes)
+			call, err := rpc.NewCall("cardinal_subscribe", "streams", c.lastNum, c.lastHash)
 			if err != nil {
 				log.Warn("Subscribe failed", "err", err)
 				time.Sleep(time.Second)
@@ -287,7 +305,7 @@ func (c *websocketConsumer) Start() error {
 					break
 				}
 				if len(message) == 0 {
-					// Maybe a ping?
+					// Probably a ping message
 					continue
 				}
 				json.Unmarshal(message, &notification)

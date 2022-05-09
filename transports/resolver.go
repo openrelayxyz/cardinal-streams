@@ -32,6 +32,18 @@ func ResolveProducerWithResumer(brokerURL, defaultTopic string, schema map[strin
   }
 }
 
+func ResolveMuxProducer(brokerParams []ProducerBrokerParams, resumer StreamsResumption) (Producer, error) {
+	mp := &muxProducer{
+		producers: make([]Producer, len(brokerParams)),
+	}
+	for i, bp := range brokerParams {
+		producer, err := ResolveProducerWithResumer(bp.URL, bp.DefaultTopic, bp.Schema, resumer)
+		if err != nil { return nil, err }
+		mp.producers[i] = producer
+	}
+	return mp, nil
+}
+
 
 //brokerURL, defaultTopic string, topics []string, resumption []byte, rollback, lastNumber int64, lastHash types.Hash, lastWeight *big.Int, reorgThreshold int64, trackedPrefixes []*regexp.Regexp, whitelist map[uint64]types.Hash
 func ResolveConsumer(brokerURL, defaultTopic string, topics []string, resumption []byte, rollback, lastNumber int64, lastHash types.Hash, lastWeight *big.Int, reorgThreshold int64, trackedPrefixes []*regexp.Regexp, whitelist map[uint64]types.Hash) (Consumer, error) {
@@ -49,7 +61,7 @@ func resolveConsumer(omp *delivery.OrderedMessageProcessor, brokerURL, defaultTo
     for i, p := range trackedPrefixes {
       prefixes[i] = p.String()
     }
-    return newWebsocketConsumer(omp, brokerURL, prefixes, lastNumber, lastHash)
+    return newWebsocketConsumer(omp, brokerURL, lastNumber, lastHash)
   case "null":
     return NewNullConsumer(), nil
   default:
@@ -96,6 +108,12 @@ type BrokerParams struct {
   DefaultTopic string   `yaml:"DefaultTopic"`
   Topics       []string `yaml:"Topics"`
   Rollback     int64    `yaml:"Rollback"`
+}
+
+type ProducerBrokerParams struct {
+	URL string               `yaml:"URL"`
+	DefaultTopic string      `yaml:"DefaultTopic"`
+	Schema map[string]string `yaml:"Schema"`
 }
 
 
