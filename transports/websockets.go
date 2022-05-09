@@ -92,7 +92,7 @@ func (p *websocketProducer) Serve(port int64) error {
 }
 
 func (p *websocketProducer) Service() interface{} {
-	return websocketStreamsService{
+	return &websocketStreamsService{
 		feed: p.feed,
 	}
 }
