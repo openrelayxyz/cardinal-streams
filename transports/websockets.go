@@ -36,7 +36,7 @@ type websocketProducer struct {
 type resultMessage struct {
 	Type string `json:"type"`
 	Batch *transportBatch `json:"batch,omitempty"`
-	SubBatch *transportSubbatch `json:"batch,omitempty"`
+	SubBatch *transportSubbatch `json:"subbatch,omitempty"`
 }
 
 type transportBatch struct {
