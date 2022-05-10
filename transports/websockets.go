@@ -93,7 +93,7 @@ func (p *websocketProducer) Serve(port int64) error {
 
 func (p *websocketProducer) Service() interface{} {
 	return &websocketStreamsService{
-		feed: p.feed,
+		feed: &p.feed,
 		resumer: p.resumer,
 	}
 }
@@ -158,7 +158,7 @@ func (p *websocketProducer) Reorg(number int64, hash types.Hash) (func(), error)
 }
 
 type websocketStreamsService struct {
-	feed types.Feed
+	feed *types.Feed
 	resumer StreamsResumption
 }
 
