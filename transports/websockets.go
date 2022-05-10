@@ -164,7 +164,7 @@ type websocketStreamsService struct {
 
 func (s *websocketStreamsService) StreamsBlock(ctx context.Context, number hexutil.Uint64) (*resultMessage, error) {
 	block := s.resumer.GetBlock(ctx, uint64(number))
-	if block != nil { return nil, fmt.Errorf("block not found") }
+	if block == nil { return nil, fmt.Errorf("block not found") }
 	values := make(map[string]hexutil.Bytes)
 	deletes := make([]string, 0, len(block.Deletes))
 	for k, v := range block.Values {
