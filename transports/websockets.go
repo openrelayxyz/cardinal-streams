@@ -35,11 +35,11 @@ type websocketProducer struct {
 
 type resultMessage struct {
 	Type string `json:"type"`
-	Batch *transportBatch `json:"batch,omitempty"`
+	Batch *TransportBatch `json:"batch,omitempty"`
 	SubBatch *transportSubbatch `json:"subbatch,omitempty"`
 }
 
-type transportBatch struct {
+type TransportBatch struct {
 	Number hexutil.Uint64 `json:"number"`
 	Weight *hexutil.Big `json:"weight"`
 	Hash types.Hash `json:"hash"`
@@ -47,6 +47,24 @@ type transportBatch struct {
 	Values map[string]hexutil.Bytes `json:"values"`
 	Deletes []string `json:"deletes"`
 	Batches map[string]types.Hash `json:"batches"`
+}
+
+func (tb *TransportBatch) ToPendingBatch() *delivery.PendingBatch {
+	pb := &delivery.PendingBatch{
+		Number: int64(tb.Number),
+		Weight: tb.Weight.ToInt(),
+		Hash: tb.Hash,
+		ParentHash: tb.ParentHash,
+		Values: make(map[string][]byte),
+		Deletes: make(map[string]struct{}),
+	}
+	for k, v := range tb.Values {
+		pb.Values[k] = []byte(v)
+	}
+	for _, k := range tb.Deletes {
+		pb.Deletes[k] = struct{}{}
+	}
+	return pb
 }
 
 type transportSubbatch struct {
@@ -112,7 +130,7 @@ func (p *websocketProducer) AddBlock(number int64, hash, parentHash types.Hash, 
 	}
 	p.feed.Send(&resultMessage{
 		Type: "batch",
-		Batch: &transportBatch{
+		Batch: &TransportBatch{
 			Number: hexutil.Uint64(uint64(number)),
 			Weight: (*hexutil.Big)(weight),
 			Hash: hash,
@@ -149,7 +167,7 @@ func (p *websocketProducer) SendBatch(batchid types.Hash, deletes []string, upda
 func (p *websocketProducer) Reorg(number int64, hash types.Hash) (func(), error) {
 	p.feed.Send(&resultMessage{
 		Type: "reorg",
-		Batch: &transportBatch{
+		Batch: &TransportBatch{
 			Hash: hash,
 			Number: hexutil.Uint64(number),
 		},
@@ -175,7 +193,7 @@ func (s *websocketStreamsService) StreamsBlock(ctx context.Context, number hexut
 	}
 	return &resultMessage{
 		Type: "batch",
-		Batch: &transportBatch{
+		Batch: &TransportBatch{
 			Number: hexutil.Uint64(uint64(block.Number)),
 			Weight: (*hexutil.Big)(block.Weight),
 			Hash: block.Hash,
@@ -206,7 +224,7 @@ func (s *websocketStreamsService) Streams(ctx context.Context, number hexutil.Ui
 			}
 			s.feed.Send(&resultMessage{
 				Type: "batch",
-				Batch: &transportBatch{
+				Batch: &TransportBatch{
 					Number: hexutil.Uint64(uint64(block.Number)),
 					Weight: (*hexutil.Big)(block.Weight),
 					Hash: block.Hash,

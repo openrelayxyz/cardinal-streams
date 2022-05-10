@@ -12,7 +12,7 @@ import (
 func TestResultMessageJSON(t *testing.T) {
 	x := &resultMessage{
 		Type: "batch",
-		Batch: &transportBatch{
+		Batch: &TransportBatch{
 			Number: hexutil.Uint64(3),
 			Weight: (*hexutil.Big)(big.NewInt(3)),
 			Hash: types.Hash{},
