@@ -298,13 +298,13 @@ func (c *websocketConsumer) Start() error {
 			}
 			callData, _ := json.Marshal(call)
 			c.conn.WriteMessage(websocket.TextMessage, callData)
-			var subid interface{}
+			var subid *hexutil.Uint64
 			for subid == nil {
 				_, message, err := c.conn.ReadMessage()
 				if err != nil {
 					log.Warn("Read error. Resetting Connection.", "err", err)
 					time.Sleep(time.Second)
-					continue
+					break
 				}
 				var response rpc.Response
 				if err := json.Unmarshal(message, &response); err != nil {
@@ -313,7 +313,16 @@ func (c *websocketConsumer) Start() error {
 					continue
 				}
 				if string(response.ID) == string(call.ID) {
-					subid = response.Result
+					idstring, ok := response.Result.(string)
+					if ok {
+						encodedid, err := hexutil.DecodeUint64(idstring)
+						if err != nil {
+							log.Warn("Invalid subscription id", "id", idstring, "err", err)
+							continue
+						}
+						x := hexutil.Uint64(encodedid)
+						subid = &x
+					}
 				} else {
 					log.Warn("Unexpected response", "wanted", call.ID, "got", response.ID)
 				}
@@ -321,7 +330,7 @@ func (c *websocketConsumer) Start() error {
 			var notification rpc.SubscriptionResponseRaw
 			for {
 				_, message, err := c.conn.ReadMessage()
-				if err == nil {
+				if err != nil {
 					log.Debug("Read error. Resetting connection.", "err", err)
 					break
 				}
@@ -334,8 +343,8 @@ func (c *websocketConsumer) Start() error {
 					log.Warn("Unexpected message on channel", "message", string(message))
 					continue
 				}
-				if notification.Params.ID != subid {
-					log.Warn("Unexpected subscription id", "wanted", subid, "got", notification.Params)
+				if notification.Params.ID != *subid {
+					log.Warn("Unexpected subscription id", "wanted", subid, "got", notification.Params.ID)
 					continue
 				}
 				var item resultMessage
