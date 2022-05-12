@@ -40,7 +40,7 @@ func (m *KafkaResumptionMessage) Time() time.Time {
 }
 
 func ParseKafkaURL(brokerURL string) ([]string, *sarama.Config) {
-  parsedURL, _ := url.Parse("kafka://" + brokerURL)
+  parsedURL, _ := url.Parse("kafka://" + strings.TrimPrefix(brokerURL, "kafka://"))
   config := sarama.NewConfig()
   config.Version = sarama.V2_5_0_0
 
@@ -197,7 +197,7 @@ type KafkaProducer struct{
 
 func NewKafkaProducer(brokerURL, defaultTopic string, schema map[string]string) (Producer, error) {
   dp, err := delivery.NewProducer(defaultTopic, schema)
-  if err != nil { return nil, err }
+  if err != nil { returnResolveProducerWithResumer nil, err }
   brokers, config := ParseKafkaURL(strings.TrimPrefix(brokerURL, "kafka://"))
   if err := CreateTopicIfDoesNotExist(brokerURL, defaultTopic, -1, nil); err != nil {
     return nil, err
