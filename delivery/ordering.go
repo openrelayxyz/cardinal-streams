@@ -144,6 +144,10 @@ func (omp *OrderedMessageProcessor) Subscribe(ch interface{}) types.Subscription
   return nil
 }
 
+func (omp *OrderedMessageProcessor) ProcessCompleteBatch(pb *PendingBatch) {
+	omp.mp.ProcessCompleteBatch(pb)
+}
+
 func (omp *OrderedMessageProcessor) SubscribeReorg(ch chan<- map[int64]types.Hash) types.Subscription {
   return omp.reorgFeed.Subscribe(ch)
 }

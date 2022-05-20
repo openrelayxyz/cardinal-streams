@@ -40,7 +40,7 @@ func (m *KafkaResumptionMessage) Time() time.Time {
 }
 
 func ParseKafkaURL(brokerURL string) ([]string, *sarama.Config) {
-  parsedURL, _ := url.Parse("kafka://" + brokerURL)
+  parsedURL, _ := url.Parse("kafka://" + strings.TrimPrefix(brokerURL, "kafka://"))
   config := sarama.NewConfig()
   config.Version = sarama.V2_5_0_0
 

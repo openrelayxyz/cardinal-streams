@@ -224,6 +224,13 @@ func (mp *MessageProcessor) evictOlderThan(n int64) {
   }
 }
 
+func (mp *MessageProcessor) ProcessCompleteBatch(pb *PendingBatch) {
+	mp.feed.Send(pb)
+	mp.lastEmittedNum = pb.Number
+	mp.completed.Add(pb.Hash, struct{}{})
+	delete(mp.pendingBatches, pb.Hash)
+}
+
 // ProcessMessage takes in messages and assembles completed blocks of messages.
 func (mp *MessageProcessor) ProcessMessage(m ResumptionMessage) error {
   EVICTLOOP:
