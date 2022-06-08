@@ -515,7 +515,7 @@ func (kc *KafkaConsumer) Start() error {
     delivery.Ready()
   }(&readyWg, &reorgWg)
   go func() {
-    hbGauge := metrics.NewMajorGauge(fmt.Sprintf("streams/kafka/%v/heartbeat", kc.defaultTopic))
+    hbGauge := metrics.NewMajorGauge("streams/kafka/heartbeat")
     hbGauge.Update(1)
     hbTicker := time.NewTicker(time.Minute)
     for {
