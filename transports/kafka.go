@@ -212,6 +212,14 @@ func NewKafkaProducer(brokerURL, defaultTopic string, schema map[string]string) 
   if err != nil {
     return nil, err
   }
+  go func() {
+    // Send a heartbeat every 30 seconds so clients knows a producer is alive
+    ticker := time.NewTicker(30 * time.Second)
+    for t := range ticker.C {
+      b, _ := t.MarshalBinary()
+      producer.Input() <- &sarama.ProducerMessage{Topic: defaultTopic, Value: sarama.ByteEncoder(b)}
+    }
+  }()
   return &KafkaProducer{dp: dp, producer: producer, reorgTopic: "", defaultTopic: defaultTopic, brokerURL: brokerURL}, nil
 }
 
@@ -507,6 +515,9 @@ func (kc *KafkaConsumer) Start() error {
     delivery.Ready()
   }(&readyWg, &reorgWg)
   go func() {
+    hbGauge := metrics.NewMajorGauge(fmt.Sprintf("streams/kafka/%v/heartbeat", kc.defaultTopic))
+    hbGauge.Update(1)
+    hbTicker := time.NewTicker(time.Minute)
     for {
       select {
       case input, ok := <-messages:
@@ -515,7 +526,10 @@ func (kc *KafkaConsumer) Start() error {
         }
         msg := &KafkaResumptionMessage{input}
         if len(msg.Key()) == 0 {
-          log.Error("Error processing input: malformed message key")
+          // Update the heartbeat gauge to 1 (received heartbeat) and reset the
+          // ticker to go off in one minute
+          hbGauge.Update(1)
+          hbTicker.Reset(time.Minute)
           continue
         }
         switch delivery.MessageType(msg.Key()[0]) {
@@ -576,6 +590,8 @@ func (kc *KafkaConsumer) Start() error {
           kc.shutdownWg.Wait()
           close(messages)
         }()
+      case <-hbTicker.C:
+        hbGauge.Update(0)
       }
     }
   }()
