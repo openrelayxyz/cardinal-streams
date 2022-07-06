@@ -327,7 +327,9 @@ func (c *websocketConsumer) Start() error {
 					log.Warn("Unexpected response", "wanted", call.ID, "got", response.ID)
 				}
 			}
+			log.Info("Subscription established", "id", subid)
 			var notification rpc.SubscriptionResponseRaw
+			connected <- struct{}{}
 			for {
 				_, message, err := c.conn.ReadMessage()
 				if err != nil {
