@@ -112,9 +112,13 @@ For the `updates` map, keys in the map will correspond to prefixes indicated by
 the Application layer. The value will be a map containing one of:
 
 * `value`: A raw value to set the specified key to
-* `count`: The number of `SubBatchMsg`s prefixed by this Key.
+* `count`: The number of `BatchMsg`s prefixed by this Key.
 * `delete`: If `true`, records with this prefix should be deleted.
 * `subbatch`: A 32 byte identifier indicating that a `SubBatchMsg` will follow to describe a sub batch.
+
+If a block includes keys that do not correspond to prefixes indicated by the
+application layer, the values for those keys should be specified in the updates
+map.
 
 ##### Consumers
 
