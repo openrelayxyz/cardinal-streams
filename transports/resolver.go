@@ -27,6 +27,8 @@ func ResolveProducerWithResumer(brokerURL, defaultTopic string, schema map[strin
     return NewWebsocketProducer(strings.TrimPrefix(brokerURL, "cardinal://"), resumer)
   case "kafka":
     return NewKafkaProducer(strings.TrimPrefix(brokerURL, "cardinal://"), defaultTopic, schema)
+  case "file":
+    return NewFileProducer(strings.TrimPrefix(brokerURL, "cardinal://"))
   default:
     return nil, fmt.Errorf("unknown producer protocol '%v'", protocol)
   }

@@ -23,14 +23,15 @@ type fileProducer struct {
 }
 
 func NewFileProducer(filepath string) (Producer, error) {
-	fileinfo, err := os.Lstat(filepath)
+	fpath := strings.TrimPrefix(filepath, "file://")
+	fileinfo, err := os.Lstat(fpath)
 	if err != nil {
 		return nil, err
 	}
 	if !fileinfo.Mode().IsDir() {
 		return nil, errors.New("File producer must target an existing directory")
 	}
-	f, err := os.OpenFile(path.Join(filepath, fmt.Sprintf("%v.gz", time.Now().Unix())), os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(path.Join(fpath, fmt.Sprintf("%v.gz", time.Now().Unix())), os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return nil, err
 	}
