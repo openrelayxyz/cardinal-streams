@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"compress/gzip"
+	"strings"
 	"time"
 	"errors"
 	"github.com/openrelayxyz/cardinal-streams/delivery"
