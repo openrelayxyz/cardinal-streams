@@ -273,6 +273,8 @@ func (kp *KafkaProducer) Reorg(number int64, hash types.Hash) (func(), error) {
   return done, nil
 }
 
+func (kp *KafkaProducer) Close() {}
+
 
 // LatestBlockFromFeed scans the feed the producer is configured for and finds
 // the latest block number. This should be used once on startup, and is

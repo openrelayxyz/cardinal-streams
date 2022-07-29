@@ -175,6 +175,8 @@ func (p *websocketProducer) Reorg(number int64, hash types.Hash) (func(), error)
 	return func() {}, nil
 }
 
+func (p *websocketProducer) Close() {}
+
 type websocketStreamsService struct {
 	feed *types.Feed
 	resumer StreamsResumption

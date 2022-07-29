@@ -19,6 +19,7 @@ type Producer interface {
   // after all blocks and batches for a given reorg have been sent to the
   // producer.
   Reorg(number int64, hash types.Hash) (func(), error)
+	Close()
 }
 
 // Consumer can be used to receive messages over a transport layer.
