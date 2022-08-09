@@ -212,6 +212,7 @@ func (s *websocketStreamsService) Streams(ctx context.Context, number hexutil.Ui
 	}
 	subch := make(chan *resultMessage, 1000)
 	var sub types.Subscription
+	sub = &nullSubscription{}
 	go func() {
 		for block := range initBlocks {
 			values := make(map[string]hexutil.Bytes)
