@@ -211,7 +211,7 @@ func (s *websocketStreamsService) Streams(ctx context.Context, number hexutil.Ui
 		return nil, err
 	}
 	subch := make(chan *resultMessage, 1000)
-	sub := s.feed.Subscribe(subch)
+	var sub types.Subscription
 	go func() {
 		for block := range initBlocks {
 			values := make(map[string]hexutil.Bytes)
@@ -222,7 +222,7 @@ func (s *websocketStreamsService) Streams(ctx context.Context, number hexutil.Ui
 			for k, _ := range block.Deletes {
 				deletes = append(deletes, k)
 			}
-			s.feed.Send(&resultMessage{
+			subch <- &resultMessage{
 				Type: "batch",
 				Batch: &TransportBatch{
 					Number: hexutil.Uint64(uint64(block.Number)),
@@ -233,11 +233,12 @@ func (s *websocketStreamsService) Streams(ctx context.Context, number hexutil.Ui
 					Values: values,
 					Deletes: deletes,
 				},
-			})
+			}
 		}
-		s.feed.Send(&resultMessage{
+		sub = s.feed.Subscribe(subch)
+		subch <- &resultMessage{
 			Type: "ready",
-		})
+		}
 	}()
 	go func() {
 		for {
@@ -411,6 +412,7 @@ func (c *websocketConsumer) Start() error {
 					delete(pendingSubbatches[item.SubBatch.Hash], item.SubBatch.BatchId)
 					if len(pendingSubbatches[item.SubBatch.Hash]) == 0 {
 						delete(pendingSubbatches, item.SubBatch.Hash)
+						delete(batches, item.SubBatch.Hash)
 						c.omp.ProcessCompleteBatch(pb)
 						c.lastNum = hexutil.Uint64(pb.Number)
 						c.lastHash = pb.Hash
