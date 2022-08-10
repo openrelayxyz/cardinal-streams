@@ -213,6 +213,8 @@ func (s *websocketStreamsService) Streams(ctx context.Context, number hexutil.Ui
 	subch := make(chan *resultMessage, 1000)
 	var sub types.Subscription
 	sub = &nullSubscription{}
+	var initwg sync.WaitGroup
+	initwg.Add(1)
 	go func() {
 		for block := range initBlocks {
 			values := make(map[string]hexutil.Bytes)
@@ -223,6 +225,7 @@ func (s *websocketStreamsService) Streams(ctx context.Context, number hexutil.Ui
 			for k, _ := range block.Deletes {
 				deletes = append(deletes, k)
 			}
+
 			subch <- &resultMessage{
 				Type: "batch",
 				Batch: &TransportBatch{
@@ -236,6 +239,7 @@ func (s *websocketStreamsService) Streams(ctx context.Context, number hexutil.Ui
 				},
 			}
 		}
+		initwg.Done()
 		sub = s.feed.Subscribe(subch)
 		subch <- &resultMessage{
 			Type: "ready",
@@ -246,6 +250,7 @@ func (s *websocketStreamsService) Streams(ctx context.Context, number hexutil.Ui
 			select {
 			case <-ctx.Done():
 				sub.Unsubscribe()
+				initwg.Wait()
 				close(subch)
 				return
 			case <-sub.Err():
