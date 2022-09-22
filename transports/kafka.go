@@ -313,6 +313,7 @@ func (kp *KafkaProducer) LatestBlockFromFeed() (int64, error) {
         if hwm := pc.HighWaterMarkOffset(); hwm - input.Offset <= 1 {
           pc.AsyncClose()
         }
+        if len(input.Key) == 0 { continue PARTITION_LOOP }
         if delivery.MessageType(input.Key[0]) == delivery.BatchType {
           b, err := delivery.UnmarshalBatch(input.Value)
           if err != nil {
