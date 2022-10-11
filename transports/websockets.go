@@ -240,11 +240,11 @@ func (s *websocketStreamsService) Streams(ctx context.Context, number hexutil.Ui
 				},
 			}
 		}
-		initwg.Done()
 		sub = s.feed.Subscribe(subch)
 		subch <- &resultMessage{
 			Type: "ready",
 		}
+		initwg.Done()
 	}()
 	go func() {
 		for {
