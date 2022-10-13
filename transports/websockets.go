@@ -32,6 +32,7 @@ type websocketProducer struct {
 	feed types.Feed
 	resumer StreamsResumption
 	expectedBatches map[types.Hash]types.Hash
+	closemu sync.RWMutex
 }
 
 type resultMessage struct {
@@ -114,6 +115,7 @@ func (p *websocketProducer) Service() interface{} {
 	return &websocketStreamsService{
 		feed: &p.feed,
 		resumer: p.resumer,
+		closemu: &p.closemu,
 	}
 }
 
@@ -129,6 +131,7 @@ func (p *websocketProducer) AddBlock(number int64, hash, parentHash types.Hash, 
 	for k := range deletes {
 		deleteData = append(deleteData, k)
 	}
+	p.closemu.RLock()
 	p.feed.Send(&resultMessage{
 		Type: "batch",
 		Batch: &TransportBatch{
@@ -141,6 +144,7 @@ func (p *websocketProducer) AddBlock(number int64, hash, parentHash types.Hash, 
 			Deletes: deleteData,
 		},
 	})
+	p.closemu.RUnlock()
 	for _, v := range batches {
 		p.expectedBatches[v] = hash
 	}
@@ -153,6 +157,7 @@ func (p *websocketProducer) SendBatch(batchid types.Hash, deletes []string, upda
 	for k, v := range updates {
 		updateData[k] = hexutil.Bytes(v)
 	}
+	p.closemu.RLock()
 	p.feed.Send(&resultMessage{
 		Type: "subbatch",
 		SubBatch: &transportSubbatch{
@@ -162,10 +167,12 @@ func (p *websocketProducer) SendBatch(batchid types.Hash, deletes []string, upda
 			Deletes: deletes,
 		},
 	})
+	p.closemu.RUnlock()
 	delete(p.expectedBatches, batchid)
 	return nil
 }
 func (p *websocketProducer) Reorg(number int64, hash types.Hash) (func(), error) {
+	p.closemu.RLock()
 	p.feed.Send(&resultMessage{
 		Type: "reorg",
 		Batch: &TransportBatch{
@@ -173,12 +180,14 @@ func (p *websocketProducer) Reorg(number int64, hash types.Hash) (func(), error)
 			Number: hexutil.Uint64(number),
 		},
 	})
+	p.closemu.RUnlock()
 	return func() {}, nil
 }
 
 type websocketStreamsService struct {
 	feed *types.Feed
 	resumer StreamsResumption
+	closemu *sync.RWMutex
 }
 
 func (s *websocketStreamsService) StreamsBlock(ctx context.Context, number hexutil.Uint64) (*resultMessage, error) {
@@ -252,11 +261,15 @@ func (s *websocketStreamsService) Streams(ctx context.Context, number hexutil.Ui
 			case <-ctx.Done():
 				sub.Unsubscribe()
 				initwg.Wait()
+				s.closemu.Lock()
 				close(subch)
+				s.closemu.Unlock()
 				return
 			case <-sub.Err():
 				sub.Unsubscribe()
+				s.closemu.Lock()
 				close(subch)
+				s.closemu.Unlock()
 				return
 			}
 		}
