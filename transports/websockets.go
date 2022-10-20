@@ -259,8 +259,8 @@ func (s *websocketStreamsService) Streams(ctx context.Context, number hexutil.Ui
 		for {
 			select {
 			case <-ctx.Done():
-				sub.Unsubscribe()
 				initwg.Wait()
+				sub.Unsubscribe()
 				s.closemu.Lock()
 				close(subch)
 				s.closemu.Unlock()
