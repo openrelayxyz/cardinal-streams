@@ -249,9 +249,11 @@ func (s *websocketStreamsService) Streams(ctx context.Context, number hexutil.Ui
 				},
 			}
 		}
-		sub = s.feed.Subscribe(subch)
-		subch <- &resultMessage{
-			Type: "ready",
+		if ctx.Err() == nil {
+			sub = s.feed.Subscribe(subch)
+			subch <- &resultMessage{
+				Type: "ready",
+			}
 		}
 		initwg.Done()
 	}()
