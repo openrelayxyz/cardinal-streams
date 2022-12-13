@@ -178,7 +178,7 @@ func (mp *muxProducer) LatestBlockFromFeed() (int64, error) {
 			topErr = err
 			continue
 		}
-		if err != nil && v < n {
+		if err == nil && v < n {
 			n = v
 		}
 	}
