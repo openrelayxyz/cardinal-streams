@@ -10,7 +10,7 @@ require (
 	github.com/inconshreveable/log15 v0.0.0-20201112154412-8562bdadbbac
 	github.com/openrelayxyz/cardinal-rpc v1.0.0
 	github.com/openrelayxyz/cardinal-types v1.0.0
-	github.com/openrelayxyz/drumline v1.0.0-stepsize0
+	github.com/openrelayxyz/drumline v1.0.0
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475
 	github.com/xdg/scram v1.0.3
 )
