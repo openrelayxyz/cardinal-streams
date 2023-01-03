@@ -452,7 +452,7 @@ func (kc *KafkaConsumer) Start() error {
       go func(pc sarama.PartitionConsumer, startOffset int64, partid int32, i int, topic string) {
         kc.shutdownWg.Add(1)
         defer kc.shutdownWg.Done()
-        dl.Add(i)
+        dl.AddScale(i, startOffset)
         var once sync.Once
         warm := false
         meter := metrics.NewMinorMeter(fmt.Sprintf("streams/kafka/%v/%v/meter", topic, partid))
