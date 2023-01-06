@@ -299,7 +299,7 @@ func newWebsocketConsumer(omp *delivery.OrderedMessageProcessor, url string, las
 
 func (c *websocketConsumer) Start() error {
 	var err error
-	connected := make(chan struct{})
+	connected := make(chan struct{}, 8)
 	isReady := false
 	go func() {
 		for !c.quit {
@@ -352,7 +352,10 @@ func (c *websocketConsumer) Start() error {
 			}
 			log.Info("Subscription established", "id", subid)
 			var notification rpc.SubscriptionResponseRaw
-			connected <- struct{}{}
+			select {
+			case connected <- struct{}{}:
+			default:
+			}
 			for {
 				_, message, err := c.conn.ReadMessage()
 				if err != nil {
