@@ -90,6 +90,7 @@ const (
   BatchDeleteMsgType            // BatchDeleteMsgType.$hash./path/
   ReorgType                     // ReorgType.$Hash
   ReorgCompleteType             // ReorgCompleteType.$Hash
+  PingType MessageType = 0xff
 )
 
 func (mt MessageType) GetKey(components ...[]byte) []byte {

@@ -1,6 +1,9 @@
 package transports
 
-import "github.com/openrelayxyz/cardinal-types"
+import (
+  "time"
+  "github.com/openrelayxyz/cardinal-types"
+  )
 
 type nullConsumer struct{}
 
@@ -24,6 +27,9 @@ func (*nullConsumer) Ready() <-chan struct{} {
 }
 func (*nullConsumer) WhyNotReady(hash types.Hash) string {
   return "null"
+}
+func (*nullConsumer) ProducerCount(time.Duration) uint {
+  return 0
 }
 
 

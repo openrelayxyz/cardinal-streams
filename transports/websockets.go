@@ -35,6 +35,10 @@ type websocketProducer struct {
 	closemu sync.RWMutex
 }
 
+func (*websocketProducer) ProducerCount(time.Duration) uint {
+  return 0
+}
+
 type resultMessage struct {
 	Type string `json:"type"`
 	Batch *TransportBatch `json:"batch,omitempty"`
@@ -295,6 +299,10 @@ type websocketConsumer struct {
 
 func newWebsocketConsumer(omp *delivery.OrderedMessageProcessor, url string, lastNum int64, lastHash types.Hash) (Consumer, error) {
 	return &websocketConsumer{url: strings.TrimPrefix(url, "cardinal://"), omp: omp, ready: make(chan struct{}), lastNum: hexutil.Uint64(lastNum), lastHash: lastHash}, nil
+}
+
+func (*websocketConsumer) ProducerCount(time.Duration) uint {
+  return 0
 }
 
 func (c *websocketConsumer) Start() error {

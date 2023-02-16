@@ -5,6 +5,7 @@ import (
   "fmt"
   "math/big"
   "regexp"
+  "time"
   "strings"
   "github.com/openrelayxyz/cardinal-types"
   "github.com/openrelayxyz/cardinal-streams/delivery"
@@ -122,6 +123,14 @@ type muxConsumer struct {
   consumers []Consumer
 }
 
+func (mc *muxConsumer) ProducerCount(d time.Duration) uint {
+  var count uint
+  for _, c := range mc.consumers {
+    count += c.ProducerCount(d)
+  }
+  return count
+}
+
 func (mc *muxConsumer) Start() error {
   for _, c := range mc.consumers {
     if err := c.Start(); err != nil { return err }
@@ -167,6 +176,14 @@ func (mc *muxConsumer) WhyNotReady(h types.Hash) string {
 
 type muxProducer struct {
   producers []Producer
+}
+
+func (mc *muxProducer) ProducerCount(d time.Duration) uint {
+  var count uint
+  for _, c := range mc.producers {
+    count += c.ProducerCount(d)
+  }
+  return count
 }
 
 func (mp *muxProducer) LatestBlockFromFeed() (int64, error) {
