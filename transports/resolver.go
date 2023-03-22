@@ -186,6 +186,12 @@ func (mc *muxProducer) ProducerCount(d time.Duration) uint {
   return count
 }
 
+func (mc *muxProducer) SetHealth(b bool) {
+  for _, p := range mc.producers {
+    p.SetHealth(b)
+  }
+}
+
 func (mp *muxProducer) LatestBlockFromFeed() (int64, error) {
 	n := int64(9223372036854775807)
 	var topErr error

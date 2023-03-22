@@ -38,6 +38,7 @@ type websocketProducer struct {
 func (*websocketProducer) ProducerCount(time.Duration) uint {
   return 0
 }
+func (*websocketProducer) SetHealth(bool) {}
 
 type resultMessage struct {
 	Type string `json:"type"`

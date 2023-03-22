@@ -1,25 +1,26 @@
 package transports
 
 import (
-  "bytes"
-  "fmt"
-  "math/big"
-  "github.com/Shopify/sarama"
-	"github.com/hashicorp/golang-lru"
-  "github.com/openrelayxyz/cardinal-types"
-  "github.com/openrelayxyz/cardinal-types/metrics"
-  "github.com/openrelayxyz/cardinal-streams/delivery"
-  "github.com/openrelayxyz/drumline"
-  log "github.com/inconshreveable/log15"
-  coreLog "log"
-  "math/rand"
-  "net/url"
-  "regexp"
-  "strings"
-  "strconv"
-  "sync"
-  "time"
-  "os"
+	"bytes"
+	"fmt"
+	coreLog "log"
+	"math/big"
+	"math/rand"
+	"net/url"
+	"os"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/Shopify/sarama"
+	lru "github.com/hashicorp/golang-lru"
+	log "github.com/inconshreveable/log15"
+	"github.com/openrelayxyz/cardinal-streams/delivery"
+	types "github.com/openrelayxyz/cardinal-types"
+	"github.com/openrelayxyz/cardinal-types/metrics"
+	"github.com/openrelayxyz/drumline"
 )
 
 type pingTracker map[types.Hash]time.Time
@@ -239,14 +240,6 @@ func NewKafkaProducer(brokerURL, defaultTopic string, schema map[string]string) 
   if err != nil {
     return nil, err
   }
-  go func() {
-    // Send a heartbeat every 30 seconds so clients knows a producer is alive
-    ticker := time.NewTicker(30 * time.Second)
-    for t := range ticker.C {
-      b, _ := t.MarshalBinary()
-      producer.Input() <- &sarama.ProducerMessage{Topic: defaultTopic, Key: sarama.ByteEncoder(delivery.PingType.GetKey(idBytes[:])), Value: sarama.ByteEncoder(b)}
-    }
-  }()
   pt := make(pingTracker)
   client, err := sarama.NewClient(brokers, config)
   if err != nil { return nil, err }
@@ -307,10 +300,16 @@ func NewKafkaProducer(brokerURL, defaultTopic string, schema map[string]string) 
   }
   cache, _ := lru.New(4096)
   skipBatches, _ := lru.New(1024)
-  kp := &KafkaProducer{dp: dp, producer: producer, reorgTopic: "", defaultTopic: defaultTopic, brokerURL: brokerURL, recentHashes: cache, skipBatches: skipBatches, pt: pt}
+  kp := &KafkaProducer{dp: dp, producer: producer, reorgTopic: "", defaultTopic: defaultTopic, brokerURL: brokerURL, recentHashes: cache, skipBatches: skipBatches, pt: pt, healthy: true}
   go func() {
+    ticker := time.NewTicker(30 * time.Second)
     for {
       select {
+      case t := <-ticker.C:
+        b, _ := t.MarshalBinary()
+        if kp.healthy {
+            producer.Input() <- &sarama.ProducerMessage{Topic: defaultTopic, Key: sarama.ByteEncoder(delivery.PingType.GetKey(idBytes[:])), Value: sarama.ByteEncoder(b)}
+        }
       case b := <-batches:
         cache.Add(b.Hash, struct{}{})
         if kp.latestNumber < b.Number {
@@ -327,6 +326,10 @@ func NewKafkaProducer(brokerURL, defaultTopic string, schema map[string]string) 
 
 func (kp *KafkaProducer) ProducerCount(d time.Duration) uint {
   return kp.pt.ProducerCount(d)
+}
+
+func (kp *KafkaProducer) SetHealth(b bool) {
+  kp.healthy = b
 }
 
 func (kp *KafkaProducer) emitBundle(bundle map[string][]delivery.Message) error {
