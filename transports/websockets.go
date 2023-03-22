@@ -240,6 +240,15 @@ func (s *websocketStreamsService) Streams(ctx context.Context, number hexutil.Ui
 			for k, _ := range block.Deletes {
 				deletes = append(deletes, k)
 			}
+            for len(subch) > 10 {
+                // If subch is getting backed up, wait before continuing to avoid high memory usage
+                // We need the buffer to be larger for when we transition to the active feed, because
+                // one blocking subscribe can delay the whole feed, but during initialization it's
+                // more likely that consumers won't be able to keep up with the stream than when
+                // blocks are received as they're validated.
+                if ctx.Err() != nil { break }
+                time.Sleep(10 * time.Millisecond)
+            }
 
 			subch <- &resultMessage{
 				Type: "batch",
