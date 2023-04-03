@@ -23,6 +23,10 @@ import (
 	"github.com/openrelayxyz/drumline"
 )
 
+var (
+  skippedBlocks = metrics.NewMinorHistogram("streams/skipped")
+)
+
 type pingTracker map[types.Hash]time.Time
 
 func (pt pingTracker) update(key types.Hash) {
@@ -358,10 +362,12 @@ func (kp *KafkaProducer) AddBlock(number int64, hash, parentHash types.Hash, wei
     for _, v := range batches {
       kp.skipBatches.Add(v, struct{}{})
     }
+    skippedBlocks.Update(1)
     return nil
   }
   msgs, err := kp.dp.AddBlock(number, hash, parentHash, weight, updates, deletes, batches)
   if err != nil { return err }
+  skippedBlocks.Update(0)
   return kp.emitBundle(msgs)
 }
 func (kp *KafkaProducer) SendBatch(batchid types.Hash, delete []string, update map[string][]byte) error {
