@@ -3,11 +3,17 @@ package transports
 import (
   "math/big"
   "github.com/openrelayxyz/cardinal-types"
+  "time"
   // "github.com/openrelayxyz/cardinal-streams/delivery"
 )
 
+type ProducerCounter interface {
+  ProducerCount(time.Duration) uint
+}
+
 // Producer can be used to send block metadata over a messaging transport.
 type Producer interface {
+  ProducerCounter
   LatestBlockFromFeed() (int64, error)
   // AddBlock will send information about a block over the transport layer.
   AddBlock(number int64, hash, parentHash types.Hash, weight *big.Int, updates map[string][]byte, deletes map[string]struct{}, batches map[string]types.Hash) error
@@ -19,10 +25,13 @@ type Producer interface {
   // after all blocks and batches for a given reorg have been sent to the
   // producer.
   Reorg(number int64, hash types.Hash) (func(), error)
+  // SetHealth allows producers to mark that they are in an unhealthy state and not currently producing
+  SetHealth(bool)
 }
 
 // Consumer can be used to receive messages over a transport layer.
 type Consumer interface {
+  ProducerCounter
   // Start sets up communication with the broker and begins processing
   // messages. If you want to ensure receipt of 100% of messages, you should
   // call Start() only after setting up subscriptions with Subscribe()
