@@ -24,7 +24,8 @@ import (
 )
 
 var (
-  skippedBlocks = metrics.NewMinorHistogram("streams/skipped")
+  skippedBlocks = metrics.NewMinorHistogram("/streams/skipped")
+  producerCount = metrics.NewMajorGauge("/streams/producers")
 )
 
 type pingTracker map[types.Hash]time.Time
@@ -40,6 +41,7 @@ func (pt pingTracker) ProducerCount(d time.Duration) uint {
       count++
     }
   }
+  producerCount.Update(int64(count))
   return count
 }
 
