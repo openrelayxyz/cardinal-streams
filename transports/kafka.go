@@ -219,7 +219,6 @@ type KafkaProducer struct{
   reorgTopic   string
   defaultTopic string
   brokerURL    string
-  latestNumber int64
   recentHashes *lru.Cache
   skipBatches  *lru.Cache
   pt           pingTracker
@@ -253,7 +252,7 @@ func NewKafkaProducer(brokerURL, defaultTopic string, schema map[string]string) 
   if err != nil { return nil, err }
   partitions, err := consumer.Partitions(defaultTopic)
   if err != nil { return nil, err }
-  batches := make(chan *delivery.Batch)
+  hashCh := make(chan types.Hash)
   heartbeats := make(chan types.Hash)
   var readyWg sync.WaitGroup
   for _, partid := range partitions {
@@ -289,12 +288,7 @@ func NewKafkaProducer(brokerURL, defaultTopic string, schema map[string]string) 
           if len(input.Key) == 0 { continue PARTITION_LOOP }
           switch delivery.MessageType(input.Key[0]) {
           case delivery.BatchType:
-            b, err := delivery.UnmarshalBatch(input.Value)
-            if err != nil {
-              log.Warn("Error unmarshalling batch", "err", err)
-              continue
-            }
-            batches <- b
+            hashCh <- types.BytesToHash(input.Key[1:33])
           case delivery.PingType:
             if !bytes.Equal(input.Key[1:], idBytes[:]) { // Ignore our own heartbeats
               heartbeats <- types.BytesToHash(input.Key[1:])
@@ -316,12 +310,8 @@ func NewKafkaProducer(brokerURL, defaultTopic string, schema map[string]string) 
         if kp.healthy {
             producer.Input() <- &sarama.ProducerMessage{Topic: defaultTopic, Key: sarama.ByteEncoder(delivery.PingType.GetKey(idBytes[:])), Value: sarama.ByteEncoder(b)}
         }
-      case b := <-batches:
-        evicted := cache.Add(b.Hash, struct{}{})
-        log.Info("Added to block cache", "hash", b.Hash, "size", cache.Len(), "evicted", evicted)
-        if kp.latestNumber < b.Number {
-          kp.latestNumber = b.Number
-        }
+      case h := <-hashCh:
+        cache.Add(h, struct{}{})
       case h := <-heartbeats:
         kp.pt.update(h)
       }
