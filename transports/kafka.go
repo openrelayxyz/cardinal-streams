@@ -317,7 +317,8 @@ func NewKafkaProducer(brokerURL, defaultTopic string, schema map[string]string) 
             producer.Input() <- &sarama.ProducerMessage{Topic: defaultTopic, Key: sarama.ByteEncoder(delivery.PingType.GetKey(idBytes[:])), Value: sarama.ByteEncoder(b)}
         }
       case b := <-batches:
-        cache.Add(b.Hash, struct{}{})
+        evicted := cache.Add(b.Hash, struct{}{})
+        log.Info("Added to block cache", "hash", b.Hash, "size", cache.Len(), "evicted", evicted)
         if kp.latestNumber < b.Number {
           kp.latestNumber = b.Number
         }
@@ -360,6 +361,7 @@ func (kp *KafkaProducer) emit(topic string, msg delivery.Message) error {
 
 func (kp *KafkaProducer) AddBlock(number int64, hash, parentHash types.Hash, weight *big.Int, updates map[string][]byte, deletes map[string]struct{}, batches map[string]types.Hash) error {
   if kp.recentHashes.Contains(hash) {
+    log.Info("Skipping previously seen block", "hash", hash, "number", number)
     // We saw this block come from another producer, we don't need to rebroadcast
     for _, v := range batches {
       kp.skipBatches.Add(v, struct{}{})
