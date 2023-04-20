@@ -364,12 +364,10 @@ func (kp *KafkaProducer) AddBlock(number int64, hash, parentHash types.Hash, wei
   return kp.emitBundle(msgs)
 }
 func (kp *KafkaProducer) SendBatch(batchid types.Hash, delete []string, update map[string][]byte) error {
-  if kp.skipBatches.Contains(batchid) {
-    // This batch is in a block that we skipped broadcasting, so we don't send
-    // the batch either.
+  msgs, err := kp.dp.SendBatch(batchid, delete, update)
+  if err == delivery.ErrUnknownBatch && kp.skipBatches.Contains(batchid) {
     return nil
   }
-  msgs, err := kp.dp.SendBatch(batchid, delete, update)
   if err != nil { return err }
   return kp.emitBundle(msgs)
 }
