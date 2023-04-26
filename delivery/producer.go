@@ -131,18 +131,19 @@ func (p *Producer) AddBlock(number int64, hash, parentHash types.Hash, weight *b
   return topicMessages, nil
 }
 
-func (p *Producer) SendBatch(batchid types.Hash, delete []string, update map[string][]byte) (map[string][]Message, error) {
+func (p *Producer) SendBatch(batchid types.Hash, deletes []string, update map[string][]byte) (map[string][]Message, error) {
   bi, ok := p.pendingBatches[batchid]
   if !ok { return nil, ErrUnknownBatch }
+  delete(p.pendingBatches, batchid)
   topicMessages := make(map[string][]Message)
   deleteRecords := 0
-  if len(delete) > 0 { deleteRecords = 1}
+  if len(deletes) > 0 { deleteRecords = 1}
   topicMessages[bi.topic] = make([]Message, 1, len(update) + deleteRecords + 1)
   counter := 0
   if deleteRecords > 0 {
     topicMessages[bi.topic] = append(topicMessages[bi.topic], &message{
       key: SubBatchMsgType.GetKey(bi.block.Bytes(), batchid.Bytes(), AvroInt(counter)),
-      value: (&SubBatchRecord{Delete: delete}).EncodeAvro(),
+      value: (&SubBatchRecord{Delete: deletes}).EncodeAvro(),
     })
     counter++
   }
