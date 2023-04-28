@@ -133,7 +133,11 @@ func (mc *muxConsumer) ProducerCount(d time.Duration) uint {
 
 func (mc *muxConsumer) Start() error {
   for _, c := range mc.consumers {
-    if err := c.Start(); err != nil { return err }
+    err := c.Start() 
+    if err != nil { 
+      log.Error("Error received from call to consumer.start()", "consumer", c)
+      return nil  
+    }
   }
   return nil
 }
@@ -148,16 +152,21 @@ func (mc *muxConsumer) Close() {
     c.Close()
   }
 }
+
 func (mc *muxConsumer) Ready() <-chan struct{} {
   ch := make(chan struct{})
   go func() {
     for _, c := range mc.consumers {
-      <-c.Ready()
+      select {
+      case <-c.Ready():
+        ch <- struct{}{}
+        return
+      }
     }
-    ch <- struct{}{}
   }()
   return ch
 }
+
 func (mc *muxConsumer) WhyNotReady(h types.Hash) string {
   for _, c := range mc.consumers {
     if v := c.WhyNotReady(h); v != "" {
