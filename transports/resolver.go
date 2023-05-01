@@ -7,6 +7,7 @@ import (
   "regexp"
   "time"
   "strings"
+  "reflect"
   "github.com/openrelayxyz/cardinal-types"
   "github.com/openrelayxyz/cardinal-streams/delivery"
   log "github.com/inconshreveable/log15"
@@ -132,8 +133,16 @@ func (mc *muxConsumer) ProducerCount(d time.Duration) uint {
 }
 
 func (mc *muxConsumer) Start() error {
+  var consumerErrs int
   for _, c := range mc.consumers {
-    if err := c.Start(); err != nil { return err }
+    err := c.Start() 
+    if err != nil { 
+      consumerErrs += 1
+      log.Error("Error received from call to consumer.start()", "consumer", c)
+    }
+  }
+  if consumerErrs == len(mc.consumers) {
+    return fmt.Errorf("All consumers returned an error")
   }
   return nil
 }
@@ -148,16 +157,33 @@ func (mc *muxConsumer) Close() {
     c.Close()
   }
 }
+
 func (mc *muxConsumer) Ready() <-chan struct{} {
   ch := make(chan struct{})
-  go func() {
-    for _, c := range mc.consumers {
-      <-c.Ready()
+  // go func() {
+  //   for _, c := range mc.consumers {
+  //     select {
+  //     case <-c.Ready():
+  //       ch <- struct{}{}
+  //       return
+  //     }
+  //   }
+  // }()
+  // return ch
+
+  channels := make([]reflect.SelectCase, len(mc.consumers))
+  for i, c := range mc.consumers {
+    channels[i] = reflect.SelectCase{
+      Dir: reflect.SelectRecv,
+      Chan: reflect.ValueOf(c.Ready()),
     }
-    ch <- struct{}{}
-  }()
+  }
+  reflect.Select(channels)
+  
+  ch <- struct{}{}
   return ch
 }
+
 func (mc *muxConsumer) WhyNotReady(h types.Hash) string {
   for _, c := range mc.consumers {
     if v := c.WhyNotReady(h); v != "" {
