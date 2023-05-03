@@ -27,6 +27,10 @@ type Producer interface {
   Reorg(number int64, hash types.Hash) (func(), error)
   // SetHealth allows producers to mark that they are in an unhealthy state and not currently producing
   SetHealth(bool)
+
+  // Producers track which blocks they have seen to avoid replaying them. If applications
+  // intend to replay blocks, they should call this function first.
+  PurgeReplayCache()
 }
 
 // Consumer can be used to receive messages over a transport layer.

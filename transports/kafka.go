@@ -449,6 +449,11 @@ func (kp *KafkaProducer) LatestBlockFromFeed() (int64, error) {
   return highestNumber, nil
 }
 
+func (kp *KafkaProducer) PurgeReplayCache() {
+  kp.recentHashes.Purge()
+  kp.skipBatches.Purge()
+}
+
 type KafkaConsumer struct{
   omp          *delivery.OrderedMessageProcessor
   quit         chan struct{}
