@@ -188,6 +188,7 @@ func (p *websocketProducer) Reorg(number int64, hash types.Hash) (func(), error)
 	p.closemu.RUnlock()
 	return func() {}, nil
 }
+func (*websocketProducer) PurgeReplayCache() {}
 
 type websocketStreamsService struct {
 	feed *types.Feed

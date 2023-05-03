@@ -252,3 +252,9 @@ func (mp *muxProducer) Reorg(number int64, hash types.Hash) (func(), error) {
 	if len(errs) > 0 { return fn, errs[0] }
 	return fn, nil
 }
+
+func (mp *muxProducer) PurgeReplayCache() {
+  for _, p := range mp.producers{
+    p.PurgeReplayCache()
+  }
+}
