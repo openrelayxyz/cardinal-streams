@@ -5,7 +5,9 @@ import (
   "fmt"
   "math/big"
   "regexp"
+  "time"
   "strings"
+  "reflect"
   "github.com/openrelayxyz/cardinal-types"
   "github.com/openrelayxyz/cardinal-streams/delivery"
   log "github.com/inconshreveable/log15"
@@ -124,9 +126,25 @@ type muxConsumer struct {
   consumers []Consumer
 }
 
-func (mc *muxConsumer) Start() error {
+func (mc *muxConsumer) ProducerCount(d time.Duration) uint {
+  var count uint
   for _, c := range mc.consumers {
-    if err := c.Start(); err != nil { return err }
+    count += c.ProducerCount(d)
+  }
+  return count
+}
+
+func (mc *muxConsumer) Start() error {
+  var consumerErrs int
+  for _, c := range mc.consumers {
+    err := c.Start() 
+    if err != nil { 
+      consumerErrs += 1
+      log.Error("Error received from call to consumer.start()", "consumer", c)
+    }
+  }
+  if consumerErrs == len(mc.consumers) {
+    return fmt.Errorf("All consumers returned an error")
   }
   return nil
 }
@@ -141,14 +159,30 @@ func (mc *muxConsumer) Close() {
     c.Close()
   }
 }
+
 func (mc *muxConsumer) Ready() <-chan struct{} {
   ch := make(chan struct{})
-  go func() {
-    for _, c := range mc.consumers {
-      <-c.Ready()
+  // go func() {
+  //   for _, c := range mc.consumers {
+  //     select {
+  //     case <-c.Ready():
+  //       ch <- struct{}{}
+  //       return
+  //     }
+  //   }
+  // }()
+  // return ch
+
+  channels := make([]reflect.SelectCase, len(mc.consumers))
+  for i, c := range mc.consumers {
+    channels[i] = reflect.SelectCase{
+      Dir: reflect.SelectRecv,
+      Chan: reflect.ValueOf(c.Ready()),
     }
-    ch <- struct{}{}
-  }()
+  }
+  reflect.Select(channels)
+  
+  ch <- struct{}{}
   return ch
 }
 func (mc *muxConsumer) WhyNotReady(h types.Hash) string {
@@ -171,6 +205,20 @@ type muxProducer struct {
   producers []Producer
 }
 
+func (mc *muxProducer) ProducerCount(d time.Duration) uint {
+  var count uint
+  for _, c := range mc.producers {
+    count += c.ProducerCount(d)
+  }
+  return count
+}
+
+func (mc *muxProducer) SetHealth(b bool) {
+  for _, p := range mc.producers {
+    p.SetHealth(b)
+  }
+}
+
 func (mp *muxProducer) LatestBlockFromFeed() (int64, error) {
 	n := int64(9223372036854775807)
 	var topErr error
@@ -180,7 +228,7 @@ func (mp *muxProducer) LatestBlockFromFeed() (int64, error) {
 			topErr = err
 			continue
 		}
-		if err != nil && v < n {
+		if err == nil && v < n {
 			n = v
 		}
 	}
@@ -232,6 +280,11 @@ func (mp *muxProducer) Reorg(number int64, hash types.Hash) (func(), error) {
 	return fn, nil
 }
 
+func (mp *muxProducer) PurgeReplayCache() {
+  for _, p := range mp.producers{
+    p.PurgeReplayCache()
+  }
+}
 func (mp *muxProducer) Close() {
 	for _, p := range mp.producers {
 		p.Close()

@@ -1,23 +1,49 @@
 package transports
 
 import (
-  "fmt"
-  "math/big"
-  "github.com/Shopify/sarama"
-  "github.com/openrelayxyz/cardinal-types"
-  "github.com/openrelayxyz/cardinal-types/metrics"
-  "github.com/openrelayxyz/cardinal-streams/delivery"
-  "github.com/openrelayxyz/drumline"
-  log "github.com/inconshreveable/log15"
-  coreLog "log"
-  "net/url"
-  "regexp"
-  "strings"
-  "strconv"
-  "sync"
-  "time"
-  "os"
+	"bytes"
+	"fmt"
+	coreLog "log"
+	"math/big"
+	"math/rand"
+	"net/url"
+	"os"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/Shopify/sarama"
+	lru "github.com/hashicorp/golang-lru"
+	log "github.com/inconshreveable/log15"
+	"github.com/openrelayxyz/cardinal-streams/delivery"
+	types "github.com/openrelayxyz/cardinal-types"
+	"github.com/openrelayxyz/cardinal-types/metrics"
+	"github.com/openrelayxyz/drumline"
 )
+
+var (
+  skippedBlocks = metrics.NewMinorHistogram("/streams/skipped")
+  producerCount = metrics.NewMajorGauge("/streams/producers")
+)
+
+type pingTracker map[types.Hash]time.Time
+
+func (pt pingTracker) update(key types.Hash) {
+  pt[key] = time.Now()
+}
+
+func (pt pingTracker) ProducerCount(d time.Duration) uint {
+  var count uint
+  for _, v := range pt {
+    if time.Since(v) < d {
+      count++
+    }
+  }
+  producerCount.Update(int64(count))
+  return count
+}
 
 type KafkaResumptionMessage struct {
   msg *sarama.ConsumerMessage
@@ -193,9 +219,16 @@ type KafkaProducer struct{
   reorgTopic   string
   defaultTopic string
   brokerURL    string
+  recentHashes *lru.Cache
+  skipBatches  *lru.Cache
+  pt           pingTracker
+  healthy      bool
 }
 
 func NewKafkaProducer(brokerURL, defaultTopic string, schema map[string]string) (Producer, error) {
+  r := rand.New(rand.NewSource(time.Now().UnixNano())) // Not cryptographically secure, but fine for unique producer IDs
+  var idBytes[32]byte
+  r.Read(idBytes[:])
   dp, err := delivery.NewProducer(defaultTopic, schema)
   if err != nil { return nil, err }
   brokers, config := ParseKafkaURL(strings.TrimPrefix(brokerURL, "kafka://"))
@@ -212,15 +245,88 @@ func NewKafkaProducer(brokerURL, defaultTopic string, schema map[string]string) 
   if err != nil {
     return nil, err
   }
+  pt := make(pingTracker)
+  client, err := sarama.NewClient(brokers, config)
+  if err != nil { return nil, err }
+  consumer, err := sarama.NewConsumerFromClient(client)
+  if err != nil { return nil, err }
+  partitions, err := consumer.Partitions(defaultTopic)
+  if err != nil { return nil, err }
+  hashCh := make(chan types.Hash)
+  heartbeats := make(chan types.Hash)
+  var readyWg sync.WaitGroup
+  for _, partid := range partitions {
+    readyWg.Add(1)
+    go func(partid int32, readyWg *sync.WaitGroup) {
+      var once sync.Once
+      offset, err := client.GetOffset(defaultTopic, partid, sarama.OffsetNewest)
+      if err != nil {
+        offset = sarama.OffsetNewest
+        once.Do(readyWg.Done)
+      } else if offset == 0 {
+        offset = sarama.OffsetNewest
+        once.Do(readyWg.Done)
+      }
+      offset -= 100
+      if offset < 0 { offset = sarama.OffsetOldest }
+      pc, err := consumer.ConsumePartition(defaultTopic, partid, offset)
+      if err != nil {
+        pc, err = consumer.ConsumePartition(defaultTopic, partid, sarama.OffsetOldest)
+        if err != nil {
+          once.Do(readyWg.Done)
+          return
+        }
+      }
+      PARTITION_LOOP:
+      for {
+        select {
+        case input := <-pc.Messages():
+          if input == nil { break PARTITION_LOOP }
+          if hwm := pc.HighWaterMarkOffset(); hwm - input.Offset <= 1 {
+            once.Do(readyWg.Done)
+          }
+          if len(input.Key) == 0 { continue PARTITION_LOOP }
+          switch delivery.MessageType(input.Key[0]) {
+          case delivery.BatchType:
+            hashCh <- types.BytesToHash(input.Key[1:33])
+          case delivery.PingType:
+            if !bytes.Equal(input.Key[1:], idBytes[:]) { // Ignore our own heartbeats
+              heartbeats <- types.BytesToHash(input.Key[1:])
+            }
+          }
+        }
+      }
+    }(partid, &readyWg)
+  }
+  cache, _ := lru.New(4096)
+  skipBatches, _ := lru.New(1024)
+  kp := &KafkaProducer{dp: dp, producer: producer, reorgTopic: "", defaultTopic: defaultTopic, brokerURL: brokerURL, recentHashes: cache, skipBatches: skipBatches, pt: pt, healthy: true}
   go func() {
-    // Send a heartbeat every 30 seconds so clients knows a producer is alive
     ticker := time.NewTicker(30 * time.Second)
-    for t := range ticker.C {
-      b, _ := t.MarshalBinary()
-      producer.Input() <- &sarama.ProducerMessage{Topic: defaultTopic, Value: sarama.ByteEncoder(b)}
+    for {
+      select {
+      case t := <-ticker.C:
+        b, _ := t.MarshalBinary()
+        if kp.healthy {
+            producer.Input() <- &sarama.ProducerMessage{Topic: defaultTopic, Key: sarama.ByteEncoder(delivery.PingType.GetKey(idBytes[:])), Value: sarama.ByteEncoder(b)}
+        }
+      case h := <-hashCh:
+        cache.Add(h, struct{}{})
+      case h := <-heartbeats:
+        kp.pt.update(h)
+      }
     }
   }()
-  return &KafkaProducer{dp: dp, producer: producer, reorgTopic: "", defaultTopic: defaultTopic, brokerURL: brokerURL}, nil
+  readyWg.Wait()
+  return kp, nil
+}
+
+func (kp *KafkaProducer) ProducerCount(d time.Duration) uint {
+  return kp.pt.ProducerCount(d)
+}
+
+func (kp *KafkaProducer) SetHealth(b bool) {
+  kp.healthy = b
 }
 
 func (kp *KafkaProducer) emitBundle(bundle map[string][]delivery.Message) error {
@@ -244,12 +350,24 @@ func (kp *KafkaProducer) emit(topic string, msg delivery.Message) error {
 }
 
 func (kp *KafkaProducer) AddBlock(number int64, hash, parentHash types.Hash, weight *big.Int, updates map[string][]byte, deletes map[string]struct{}, batches map[string]types.Hash) error {
+  if kp.recentHashes.Contains(hash) {
+    // We saw this block come from another producer, we don't need to rebroadcast
+    for _, v := range batches {
+      kp.skipBatches.Add(v, struct{}{})
+    }
+    skippedBlocks.Update(1)
+    return nil
+  }
   msgs, err := kp.dp.AddBlock(number, hash, parentHash, weight, updates, deletes, batches)
   if err != nil { return err }
+  skippedBlocks.Update(0)
   return kp.emitBundle(msgs)
 }
 func (kp *KafkaProducer) SendBatch(batchid types.Hash, delete []string, update map[string][]byte) error {
   msgs, err := kp.dp.SendBatch(batchid, delete, update)
+  if err == delivery.ErrUnknownBatch && kp.skipBatches.Contains(batchid) {
+    return nil
+  }
   if err != nil { return err }
   return kp.emitBundle(msgs)
 }
@@ -315,6 +433,7 @@ func (kp *KafkaProducer) LatestBlockFromFeed() (int64, error) {
         if hwm := pc.HighWaterMarkOffset(); hwm - input.Offset <= 1 {
           pc.AsyncClose()
         }
+        if len(input.Key) == 0 { continue PARTITION_LOOP }
         if delivery.MessageType(input.Key[0]) == delivery.BatchType {
           b, err := delivery.UnmarshalBatch(input.Value)
           if err != nil {
@@ -332,6 +451,11 @@ func (kp *KafkaProducer) LatestBlockFromFeed() (int64, error) {
   return highestNumber, nil
 }
 
+func (kp *KafkaProducer) PurgeReplayCache() {
+  kp.recentHashes.Purge()
+  kp.skipBatches.Purge()
+}
+
 type KafkaConsumer struct{
   omp          *delivery.OrderedMessageProcessor
   quit         chan struct{}
@@ -345,6 +469,7 @@ type KafkaConsumer struct{
   shutdownWg   sync.WaitGroup
   isReorg      bool
   startHash    types.Hash
+  pt           pingTracker
 }
 
 func kafkaConsumerWithOMP(omp *delivery.OrderedMessageProcessor, brokerURL, defaultTopic string, topics []string, resumption []byte, rollback int64, lastHash types.Hash) (Consumer, error) {
@@ -373,6 +498,7 @@ func kafkaConsumerWithOMP(omp *delivery.OrderedMessageProcessor, brokerURL, defa
     client: client,
     rollback: rollback,
     startHash: lastHash,
+    pt: make(pingTracker),
   }, nil
 }
 
@@ -416,6 +542,7 @@ func (kc *KafkaConsumer) Start() error {
   var readyWg, warmupWg, reorgWg sync.WaitGroup
   messages := make(chan *sarama.ConsumerMessage, 512) // 512 is arbitrary. Worked for Flume, but may require tuning for Cardinal
   partitionConsumers := []sarama.PartitionConsumer{}
+  heartbeats := make(chan types.Hash)
   for _, topic := range kc.topics {
     partitions, err := consumer.Partitions(topic)
     if err != nil { return err }
@@ -453,7 +580,7 @@ func (kc *KafkaConsumer) Start() error {
       go func(pc sarama.PartitionConsumer, startOffset int64, partid int32, i int, topic string) {
         kc.shutdownWg.Add(1)
         defer kc.shutdownWg.Done()
-        dl.Add(i)
+        dl.AddScale(i, startOffset)
         var once sync.Once
         warm := false
         meter := metrics.NewMinorMeter(fmt.Sprintf("streams/kafka/%v/%v/meter", topic, partid))
@@ -556,6 +683,8 @@ func (kc *KafkaConsumer) Start() error {
               log.Error("Error processing input:", "err", err, "key", input.Key, "msg", input.Value, "part", input.Partition, "offset", input.Offset)
             }
           }
+        case delivery.PingType:
+          heartbeats <- types.BytesToHash(msg.Key()[1:])
         case delivery.ReorgCompleteType:
           reorgWg.Done()
         default:
@@ -597,8 +726,20 @@ func (kc *KafkaConsumer) Start() error {
       }
     }
   }()
+  go func() {
+    for {
+      select {
+      case h := <-heartbeats:
+        kc.pt.update(h)
+      }
+    }
+  }()
   return nil
 }
+func (kc *KafkaConsumer) ProducerCount(d time.Duration) uint {
+  return kc.pt.ProducerCount(d)
+}
+
 func (kc *KafkaConsumer) Ready() <-chan struct{} {
   if kc.ready != nil { return kc.ready }
   r := make(chan struct{}, 1)

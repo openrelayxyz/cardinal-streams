@@ -31,7 +31,9 @@ are interested in tracking.
 
 Applications may additionally provide a mapping of which message prefixes
 should be transmitted over which Topics, depending on the nature of the
-supported Transports.
+supported Transports. These prefixes may be specified as regular expressions,
+as key distinguishing features of different prefixes may appear later in the
+key.
 
 ## Messages
 

@@ -112,6 +112,14 @@ func (fp *fileProducer) Reorg(number int64, hash types.Hash) (func(), error) {
 	return func() {}, err
 }
 
+func (*fileProducer) ProducerCount(time.Duration) uint { return 0 }
+
+func (*fileProducer) PurgeReplayCache() {}
+
+func (*fileProducer) SetHealth(bool) {}
+
+
+
 func (fp *fileProducer) Close() {
 	fp.compressedFile.Close()
 	fp.file.Close()

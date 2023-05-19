@@ -34,6 +34,7 @@ type OrderedMessageProcessor struct {
   reorgFeed      types.Feed
   whitelist      map[uint64]types.Hash
   blacklist      map[types.Hash]struct{}
+  initEmpty      bool
 }
 
 
@@ -51,6 +52,7 @@ func NewOrderedMessageProcessor(lastNumber int64, lastHash types.Hash, lastWeigh
     quit: make(chan struct{}),
     whitelist: whitelist,
     blacklist: make(map[types.Hash]struct{}),
+    initEmpty: lastHash == (types.Hash{}),
   }
   var err error
   omp.finished, err = lru.NewWithEvict(int(reorgThreshold * 2), func(k, v interface{}) {
@@ -176,8 +178,8 @@ func (omp *OrderedMessageProcessor) HandlePendingBatch(pb *PendingBatch, reorg b
     log.Debug("Emitting next child")
     omp.prepareEmit([]*PendingBatch{pb}, []*PendingBatch{})
     return
-  } else if omp.lastHash == (types.Hash{}) {
-    // Initialized without a lastHash; emit the first block we see.
+  } else if omp.initEmpty && omp.finished.Len() < 10 && !omp.finished.Contains(pb.ParentHash) {
+    // Initialized without a lastHash; emit the first several blocks we see
     log.Debug("Initialized without a lasthash")
     omp.prepareEmit([]*PendingBatch{pb}, []*PendingBatch{})
     return
