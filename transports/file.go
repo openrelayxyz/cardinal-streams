@@ -14,6 +14,7 @@ import (
 	"github.com/openrelayxyz/cardinal-streams/delivery"
 	"github.com/openrelayxyz/cardinal-types"
 	"github.com/openrelayxyz/cardinal-types/hexutil"
+	log "github.com/inconshreveable/log15"
 )
 
 type fileProducer struct {
@@ -32,10 +33,12 @@ func NewFileProducer(filepath string) (Producer, error) {
 	if !fileinfo.Mode().IsDir() {
 		return nil, errors.New("File producer must target an existing directory")
 	}
-	f, err := os.OpenFile(path.Join(fpath, fmt.Sprintf("%v.gz", time.Now().Unix())), os.O_CREATE|os.O_WRONLY, 0644)
+	fname := fmt.Sprintf("%v.gz", time.Now().Unix())
+	f, err := os.OpenFile(path.Join(fpath, fname), os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return nil, err
 	}
+	log.Info("Opening cardinal file stream", "path", path.Join(fpath, fname))
 	gzw, _ := gzip.NewWriterLevel(f, gzip.BestCompression)
 	return &fileProducer{
 		encoder: json.NewEncoder(gzw),
