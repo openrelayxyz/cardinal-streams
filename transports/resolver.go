@@ -66,6 +66,8 @@ func resolveConsumer(omp *delivery.OrderedMessageProcessor, brokerURL, defaultTo
       prefixes[i] = p.String()
     }
     return newWebsocketConsumer(omp, brokerURL, lastNumber, lastHash)
+  case "file":
+    return newFileConsumer(omp, brokerURL, lastNumber, lastHash)
   case "null":
     return NewNullConsumer(), nil
   default:

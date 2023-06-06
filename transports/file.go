@@ -3,6 +3,7 @@ package transports
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"io"
 	"math/big"
 	"os"
@@ -126,4 +127,154 @@ func (*fileProducer) SetHealth(bool) {}
 func (fp *fileProducer) Close() {
 	fp.compressedFile.Close()
 	fp.file.Close()
+}
+
+
+type fileConsumer struct {
+	path string
+	omp *delivery.OrderedMessageProcessor
+	chainUpdates types.Feed
+	pendingBatches types.Feed
+	reorgs types.Feed
+	ready chan struct{}
+	quit bool
+	lastNum hexutil.Uint64
+	lastHash types.Hash
+}
+
+func newFileConsumer(omp *delivery.OrderedMessageProcessor, url string, lastNum int64, lastHash types.Hash) (Consumer, error) {
+	return &fileConsumer{path: strings.TrimPrefix(url, "cardinal://"), omp: omp, ready: make(chan struct{}), lastNum: hexutil.Uint64(lastNum), lastHash: lastHash}, nil
+}
+
+func (fc *fileConsumer) Start() error {
+	fpath := strings.TrimPrefix(fc.path, "file://")
+	fileinfo, err := os.Lstat(fpath)
+	if err != nil {
+		return err
+	}
+	if !fileinfo.Mode().IsDir() {
+		return errors.New("File consumer must target an existing directory")
+	}
+	go func () {
+		batches := make(map[types.Hash]*delivery.PendingBatch)
+		subbatches := make(map[types.Hash]*transportSubbatch)
+		pendingSubbatches := make(map[types.Hash]map[types.Hash]struct{})
+		err := filepath.Walk(fc.path, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+	
+			if info.IsDir() {
+				return nil
+			}
+	
+			file, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+	
+			gzipReader, err := gzip.NewReader(file)
+			if err != nil {
+				return err
+			}
+			defer gzipReader.Close()
+	
+			// Read and process each line
+			decoder := json.NewDecoder(gzipReader)
+			for {
+				var item resultMessage
+				if err := decoder.Decode(&item); err != nil {
+					if err == io.EOF {
+						break
+					}
+					return err
+				}
+				switch item.Type {
+				case "batch":
+					pb := &delivery.PendingBatch{
+						Number: int64(item.Batch.Number),
+						Weight: item.Batch.Weight.ToInt(),
+						Hash: item.Batch.Hash,
+						ParentHash: item.Batch.ParentHash,
+						Values: make(map[string][]byte),
+						Deletes: make(map[string]struct{}),
+					}
+					for k, v := range item.Batch.Values {
+						pb.Values[k] = []byte(v)
+					}
+					for _, k := range item.Batch.Deletes {
+						pb.Deletes[k] = struct{}{}
+					}
+					pendingSubbatches[pb.Hash] = make(map[types.Hash]struct{})
+					for _, batchid := range item.Batch.Batches {
+						if sb, ok := subbatches[batchid]; ok {
+							for k, v := range sb.Values {
+								pb.Values[k] = v
+							}
+							for _, k := range sb.Deletes {
+								pb.Deletes[k] = struct{}{}
+							}
+							delete(subbatches, batchid)
+						} else {
+							batches[pb.Hash] = pb
+							pendingSubbatches[pb.Hash][batchid] = struct{}{}
+						}
+					}
+					if len(pendingSubbatches[pb.Hash]) == 0 {
+						delete(pendingSubbatches, pb.Hash)
+						fc.omp.ProcessCompleteBatch(pb)
+						fc.lastNum = hexutil.Uint64(pb.Number)
+						fc.lastHash = pb.Hash
+					}
+				case "subbatch":
+					pb, ok := batches[item.SubBatch.Hash]
+					if !ok {
+						subbatches[item.SubBatch.BatchId] = item.SubBatch
+						continue
+					}
+					for k, v := range item.SubBatch.Values {
+						pb.Values[k] = v
+					}
+					for _, k := range item.SubBatch.Deletes {
+						pb.Deletes[k] = struct{}{}
+					}
+					delete(subbatches, item.SubBatch.BatchId)
+					delete(pendingSubbatches[item.SubBatch.Hash], item.SubBatch.BatchId)
+					if len(pendingSubbatches[item.SubBatch.Hash]) == 0 {
+						delete(pendingSubbatches, item.SubBatch.Hash)
+						delete(batches, item.SubBatch.Hash)
+						fc.omp.ProcessCompleteBatch(pb)
+						fc.lastNum = hexutil.Uint64(pb.Number)
+						fc.lastHash = pb.Hash
+					}
+				}
+			}
+	
+			return nil
+		})
+		if err != nil {
+			log.Error("Error walking file", "err", err)
+		}
+
+	}()
+	return err
+}
+func (fc *fileConsumer) Subscribe(ch interface{}) types.Subscription {
+	return fc.omp.Subscribe(ch)
+}
+func (fc *fileConsumer) SubscribeReorg(ch chan<- map[int64]types.Hash) types.Subscription {
+	return fc.omp.SubscribeReorg(ch)
+}
+func (fc *fileConsumer) Close() {
+	fc.quit = true
+}
+func (fc *fileConsumer) Ready() <-chan struct{} {
+	return fc.ready
+}
+func (fc *fileConsumer) WhyNotReady(types.Hash) string {
+	return "unknown"
+}
+func (fc *fileConsumer) ProducerCount(time.Duration) uint {
+	return 0
 }
