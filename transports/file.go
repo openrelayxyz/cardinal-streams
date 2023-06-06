@@ -159,7 +159,7 @@ func (fc *fileConsumer) Start() error {
 		batches := make(map[types.Hash]*delivery.PendingBatch)
 		subbatches := make(map[types.Hash]*transportSubbatch)
 		pendingSubbatches := make(map[types.Hash]map[types.Hash]struct{})
-		err := filepath.Walk(fc.path, func(path string, info os.FileInfo, err error) error {
+		err := filepath.Walk(strings.TrimPrefix(fc.path, "file://"), func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
@@ -173,6 +173,7 @@ func (fc *fileConsumer) Start() error {
 				return err
 			}
 			defer file.Close()
+			log.Info("Loading file", "file", fc.path)
 	
 			gzipReader, err := gzip.NewReader(file)
 			if err != nil {
@@ -250,12 +251,14 @@ func (fc *fileConsumer) Start() error {
 					}
 				}
 			}
+            log.Info("Completed file", "file", fc.path)
 	
 			return nil
 		})
 		if err != nil {
 			log.Error("Error walking file", "err", err)
 		}
+        fc.ready <- struct{}{}
 
 	}()
 	return err
