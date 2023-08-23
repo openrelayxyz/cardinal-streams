@@ -171,16 +171,17 @@ func (mc *muxConsumer) Ready() <-chan struct{} {
   // }()
   // return ch
 
-  channels := make([]reflect.SelectCase, len(mc.consumers))
-  for i, c := range mc.consumers {
-    channels[i] = reflect.SelectCase{
-      Dir: reflect.SelectRecv,
-      Chan: reflect.ValueOf(c.Ready()),
+  go func() {
+    channels := make([]reflect.SelectCase, len(mc.consumers))
+    for i, c := range mc.consumers {
+      channels[i] = reflect.SelectCase{
+        Dir: reflect.SelectRecv,
+        Chan: reflect.ValueOf(c.Ready()),
+      }
     }
-  }
-  reflect.Select(channels)
-  
-  ch <- struct{}{}
+    reflect.Select(channels)
+    ch <- struct{}{}
+  }()
   return ch
 }
 
