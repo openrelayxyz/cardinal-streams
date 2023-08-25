@@ -372,23 +372,25 @@ func (kp *KafkaProducer) SendBatch(batchid types.Hash, delete []string, update m
   return kp.emitBundle(msgs)
 }
 func (kp *KafkaProducer) Reorg(number int64, hash types.Hash) (func(), error) {
-  msg := kp.dp.Reorg(number, hash)
-  oldReorgTopic := kp.reorgTopic
-  kp.reorgTopic = fmt.Sprintf("%s-re-%x",  kp.defaultTopic, hash.Bytes())
-  done := func() {
-    kp.emit(kp.reorgTopic, kp.dp.ReorgDone(number, hash))
-    kp.reorgTopic = oldReorgTopic
-  }
-  if err := CreateTopicIfDoesNotExist(kp.brokerURL, kp.reorgTopic, 1, nil); err != nil {
-    done()
-    return func() {}, err
-  }
-  if err := kp.emit(kp.defaultTopic, msg); err != nil {
-    done()
-    return func(){}, err
-  }
-  kp.emit(kp.reorgTopic, msg)
-  return done, nil
+  // msg := kp.dp.Reorg(number, hash)
+  // oldReorgTopic := kp.reorgTopic
+  // kp.reorgTopic = fmt.Sprintf("%s-re-%x",  kp.defaultTopic, hash.Bytes())
+  // done := func() {
+  //   kp.emit(kp.reorgTopic, kp.dp.ReorgDone(number, hash))
+  //   kp.reorgTopic = oldReorgTopic
+  // }
+  // if err := CreateTopicIfDoesNotExist(kp.brokerURL, kp.reorgTopic, 1, nil); err != nil {
+  //   done()
+  //   return func() {}, err
+  // }
+  // if err := kp.emit(kp.defaultTopic, msg); err != nil {
+  //   done()
+  //   return func(){}, err
+  // }
+  // kp.emit(kp.reorgTopic, msg)
+  // return done, nil
+  log.Warn("Large reorg functionality disabled")
+  return func(){}, nil
 }
 
 
