@@ -13,7 +13,7 @@ require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/openrelayxyz/cardinal-rpc v1.1.0
 	github.com/openrelayxyz/cardinal-types v1.0.0
-	github.com/openrelayxyz/drumline v1.0.0-divide-by-zero0
+	github.com/openrelayxyz/drumline v1.0.1
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475
 	github.com/stretchr/testify v1.7.2 // indirect
 	github.com/xdg/scram v1.0.3
