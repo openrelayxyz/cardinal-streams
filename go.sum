@@ -77,8 +77,8 @@ github.com/openrelayxyz/cardinal-rpc v1.1.0 h1:pOXIAF32LG80tVytdg7Y6z9rYJsBD5UnP
 github.com/openrelayxyz/cardinal-rpc v1.1.0/go.mod h1:UZ5KxcsG51ZMBHvLpaDoIReyHpGfGTkazuSKh8Lx4q8=
 github.com/openrelayxyz/cardinal-types v1.0.0 h1:/H+TvMIoOwp5ub+jgwlrsC41bWSHFye+oz5SLktgGhs=
 github.com/openrelayxyz/cardinal-types v1.0.0/go.mod h1:4CzsdfRjAWXeOszcXbUuNNjEP7ZR8Np8RO3FO5TFA6E=
-github.com/openrelayxyz/drumline v1.0.0-divide-by-zero0 h1:iE+yIybj2sdS0aAzyGzxMj4N0vcP9sNpfMQckD/kRlE=
-github.com/openrelayxyz/drumline v1.0.0-divide-by-zero0/go.mod h1:wHb9N0b4UBYtxa8+atz9b3F5kIb70p7NMmWxNeSxhJ0=
+github.com/openrelayxyz/drumline v1.0.1 h1:/gEvJff+AwJ4zU6SuDhXvDczxGBHcAI0P41xZ1kXSys=
+github.com/openrelayxyz/drumline v1.0.1/go.mod h1:wHb9N0b4UBYtxa8+atz9b3F5kIb70p7NMmWxNeSxhJ0=
 github.com/pierrec/lz4 v2.6.0+incompatible h1:Ix9yFKn1nSPBLFl/yZknTp8TU5G4Ps0JDmguYK6iH1A=
 github.com/pierrec/lz4 v2.6.0+incompatible/go.mod h1:pdkljMzZIN41W+lC3N2tnIh5sFi+IEE17M5jbnwPHcY=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

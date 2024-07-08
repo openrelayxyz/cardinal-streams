@@ -132,6 +132,12 @@ func (c *ChainUpdate) Removed() []*PendingBatch {
   return c.removed
 }
 
+func (c *ChainUpdate) Done() {
+  for _, pb := range append(c.added, c.removed...) {
+    pb.Done()
+  }
+}
+
 // Subscribe enables subscribing to either oredred chain updates or unordered
 // pending batches. Calling Subscribe on a chan *ChainUpdate will return a
 // subscription for ordered chain updates. Calling subscribe on a *PendingBatch
@@ -142,6 +148,8 @@ func (omp *OrderedMessageProcessor) Subscribe(ch interface{}) types.Subscription
     return omp.updateFeed.Subscribe(v)
   case chan *PendingBatch:
     return omp.mp.feed.Subscribe(v)
+  case chan *Waiter:
+    return omp.mp.SubscribeWaiters(v)
   }
   return nil
 }
