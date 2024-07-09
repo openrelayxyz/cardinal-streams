@@ -7,7 +7,25 @@ import (
     "sync"
 )
 
-type Waiter struct {
+type Waiter interface {
+    // WaitForHash takes a hash and a duration, and returns a WaitResult of
+    // Success, Timeout, or NotFound. Callers should confirm that the block is not known to
+    // their application before calling, but the waiter keeps a brief history of known blocks
+    // to avoid race conditions. Calling applications should call cu.Done() on chain updates
+    // for the waiter to process blocks. Note that blocks that get reorged out may never be 
+    // processed even though their hashes have been seen.
+    WaitForHash(types.Hash, time.Duration) WaitResult
+    // WaitForNumber takes a block number and a duration, and returns a WaitResult of
+    // Success, Timeout, or NotFound. Callers should confirm that the block is not known to
+    // their application before calling, but the waiter keeps a brief history of known blocks
+    // to avoid race conditions. Calling applications should call pb.Done() on pending batches
+    // for the waiter to process blocks. Note that depending on how blocks get processed by the
+    // OrderedMessageProcessor, blocks that get reorged out may never be processed.
+    WaitForNumber(int64, time.Duration) WaitResult
+    Stop()
+}
+
+type ompWaiter struct {
     hashes map[types.Hash]chan struct{}
     numbers map[int64]chan struct{}
     lock sync.RWMutex
@@ -15,9 +33,9 @@ type Waiter struct {
     ch chan *delivery.Waiter
 }
 
-func NewWaiter(omp *delivery.OrderedMessageProcessor) *Waiter {
+func NewOmpWaiter(omp *delivery.OrderedMessageProcessor) Waiter {
     ch := make(chan *delivery.Waiter, 1024)
-    w := &Waiter{
+    w := &ompWaiter{
         hashes: make(map[types.Hash]chan struct{}),
         numbers: make(map[int64]chan struct{}),
         sub: omp.Subscribe(ch),
@@ -68,13 +86,8 @@ const (
     NotFound
 )
 
-// WaitForHash takes a hash and a duration, and returns a WaitResult of
-// Success, Timeout, or NotFound. Callers should confirm that the block is not known to
-// their application before calling, but the waiter keeps a brief history of known blocks
-// to avoid race conditions. Calling applications should call pb.Done() on pending batches
-// for the waiter to process blocks. Note that depending on how blocks get processed by the
-// OrderedMessageProcessor, blocks that get reorged out may never be processed.
-func (w *Waiter) WaitForHash(h types.Hash, timeout time.Duration) WaitResult {
+
+func (w *ompWaiter) WaitForHash(h types.Hash, timeout time.Duration) WaitResult {
     w.lock.RLock()
     ch, ok := w.hashes[h]
     w.lock.RUnlock()
@@ -89,13 +102,7 @@ func (w *Waiter) WaitForHash(h types.Hash, timeout time.Duration) WaitResult {
     }
 }
 
-// WaitForNumber takes a hash and a duration, and returns a WaitResult of
-// Success, Timeout, or NotFound. Callers should confirm that the block is not known to
-// their application before calling, but the waiter keeps a brief history of known blocks
-// to avoid race conditions. Calling applications should call pb.Done() on pending batches
-// for the waiter to process blocks. Note that depending on how blocks get processed by the
-// OrderedMessageProcessor, blocks that get reorged out may never be processed.
-func (w *Waiter) WaitForNumber(n int64, timeout time.Duration) WaitResult {
+func (w *ompWaiter) WaitForNumber(n int64, timeout time.Duration) WaitResult {
     w.lock.RLock()
     ch, ok := w.numbers[n]
     w.lock.RUnlock()
@@ -110,7 +117,7 @@ func (w *Waiter) WaitForNumber(n int64, timeout time.Duration) WaitResult {
     }
 }
 
-func (w *Waiter) Stop() {
+func (w *ompWaiter) Stop() {
     w.sub.Unsubscribe()
     close(w.ch)
 }
