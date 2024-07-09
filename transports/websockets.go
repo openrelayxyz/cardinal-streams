@@ -10,6 +10,7 @@ import (
 	"github.com/openrelayxyz/cardinal-rpc/transports"
 	"github.com/openrelayxyz/cardinal-types/hexutil"
 	"github.com/openrelayxyz/cardinal-streams/delivery"
+	"github.com/openrelayxyz/cardinal-streams/waiter"
 	log "github.com/inconshreveable/log15"
 	"context"
 	"net/url"
@@ -306,6 +307,7 @@ type websocketConsumer struct {
 	quit bool
 	lastNum hexutil.Uint64
 	lastHash types.Hash
+    waiter waiter.Waiter
 }
 
 func newWebsocketConsumer(omp *delivery.OrderedMessageProcessor, url string, lastNum int64, lastHash types.Hash) (Consumer, error) {
@@ -484,3 +486,10 @@ func (c *websocketConsumer) Ready() <-chan struct{} {
 func (c *websocketConsumer) WhyNotReady(types.Hash) string {
 	return "unknown"
 }
+
+func (c *websocketConsumer) Waiter() waiter.Waiter {
+    if c.waiter == nil {
+      c.waiter = waiter.NewOmpWaiter(c.omp)
+    }
+    return c.waiter
+  }
