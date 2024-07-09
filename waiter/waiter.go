@@ -4,8 +4,18 @@ import (
     "time"
     "github.com/openrelayxyz/cardinal-streams/delivery"
     "github.com/openrelayxyz/cardinal-types"
+    "github.com/openrelayxyz/cardinal-types/metrics"
     "sync"
+    "runtime"
 )
+
+
+var (
+    timeoutMetric = metrics.NewMinorCounter("/streams/waiter/timeout")
+    successMetric = metrics.NewMinorCounter("/streams/waiter/success")
+    unavailableMetric = metrics.NewMinorCounter("/streams/waiter/unavailable")
+)
+
 
 type Waiter interface {
     // WaitForHash takes a hash and a duration, and returns a WaitResult of
@@ -14,14 +24,21 @@ type Waiter interface {
     // to avoid race conditions. Calling applications should call cu.Done() on chain updates
     // for the waiter to process blocks. Note that blocks that get reorged out may never be 
     // processed even though their hashes have been seen.
-    WaitForHash(types.Hash, time.Duration) WaitResult
+    WaitForHashResult(types.Hash, time.Duration) WaitResult
+
+    // WaitForHash behaves like WaitForHashResult without returning a result. Callers should confirm that the
+    // block is not known to their application, call WaitForHash, then check their application again.
+    WaitForHash(types.Hash, time.Duration)
     // WaitForNumber takes a block number and a duration, and returns a WaitResult of
     // Success, Timeout, or NotFound. Callers should confirm that the block is not known to
     // their application before calling, but the waiter keeps a brief history of known blocks
     // to avoid race conditions. Calling applications should call pb.Done() on pending batches
     // for the waiter to process blocks. Note that depending on how blocks get processed by the
     // OrderedMessageProcessor, blocks that get reorged out may never be processed.
-    WaitForNumber(int64, time.Duration) WaitResult
+    WaitForNumberResult(int64, time.Duration) WaitResult
+    // WaitForNumber behaves like WaitForNumberResult without returning a result. Callers should confirm that the
+    // block is not known to their application, call WaitForHash, then check their application again.
+    WaitForNumber(int64, time.Duration)
     Stop()
 }
 
@@ -86,8 +103,13 @@ const (
     NotFound
 )
 
+func (w *ompWaiter) WaitForHash(h types.Hash, timeout time.Duration) {
+    w.WaitForHashResult(h, timeout)
+}
 
-func (w *ompWaiter) WaitForHash(h types.Hash, timeout time.Duration) WaitResult {
+
+func (w *ompWaiter) WaitForHashResult(h types.Hash, timeout time.Duration) WaitResult {
+    runtime.Gosched() // Give other processes a chance to populate w.hashes
     w.lock.RLock()
     ch, ok := w.hashes[h]
     w.lock.RUnlock()
@@ -102,7 +124,13 @@ func (w *ompWaiter) WaitForHash(h types.Hash, timeout time.Duration) WaitResult 
     }
 }
 
-func (w *ompWaiter) WaitForNumber(n int64, timeout time.Duration) WaitResult {
+
+func (w *ompWaiter) WaitForNumber(n int64, timeout time.Duration) {
+    w.WaitForNumberResult(n, timeout)
+}
+
+func (w *ompWaiter) WaitForNumberResult(n int64, timeout time.Duration) WaitResult {
+    runtime.Gosched() // Give other processes a chance to populate w.numbers
     w.lock.RLock()
     ch, ok := w.numbers[n]
     w.lock.RUnlock()

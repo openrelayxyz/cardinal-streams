@@ -52,14 +52,14 @@ func TestWaiterSuccess(t *testing.T) {
     var wg sync.WaitGroup
     wg.Add(1)
     go func() {
-        if result := w.WaitForHash(bpb.Hash, time.Second); result != Success {
+        if result := w.WaitForHashResult(bpb.Hash, time.Second); result != Success {
             t.Errorf("Expected success for hash, got %v", result)
         }
         wg.Done()
     }()
     wg.Add(1)
     go func() {
-        if result := w.WaitForNumber(bpb.Number, time.Second); result != Success {
+        if result := w.WaitForNumberResult(bpb.Number, time.Second); result != Success {
             t.Errorf("Expected success for number, got %v", result)
         }
         wg.Done()
@@ -67,7 +67,7 @@ func TestWaiterSuccess(t *testing.T) {
     omp.ProcessCompleteBatch(apb)
     wg.Wait()
 }
-func TestWaiterReorg(t *testing.T) {
+func TestWaiterTimeout(t *testing.T) {
     zpb := &delivery.PendingBatch{
         Number: 1,
         Hash: types.Hash{255},
@@ -96,21 +96,21 @@ func TestWaiterReorg(t *testing.T) {
     var wg sync.WaitGroup
     wg.Add(1)
     go func() {
-        if result := w.WaitForHash(bpb.Hash, 250 * time.Millisecond); result != Timeout {
+        if result := w.WaitForHashResult(bpb.Hash, 250 * time.Millisecond); result != Timeout {
             t.Errorf("Expected timeout for hash, got %v", result)
         }
         wg.Done()
     }()
     wg.Add(1)
     go func() {
-        if result := w.WaitForNumber(bpb.Number, 250 * time.Millisecond); result != Timeout {
+        if result := w.WaitForNumberResult(bpb.Number, 250 * time.Millisecond); result != Timeout {
             t.Errorf("Expected timeout for number, got %v", result)
         }
         wg.Done()
     }()
     wg.Wait()
 }
-func TestWaiterTimeout(t *testing.T) {
+func TestWaiterReorg(t *testing.T) {
     zpb := &delivery.PendingBatch{
         Number: 1,
         Hash: types.Hash{255},
@@ -143,14 +143,14 @@ func TestWaiterTimeout(t *testing.T) {
     var wg sync.WaitGroup
     wg.Add(1)
     go func() {
-        if result := w.WaitForHash(bpb.Hash, 250 * time.Millisecond); result != Timeout {
+        if result := w.WaitForHashResult(bpb.Hash, 250 * time.Millisecond); result != Timeout {
             t.Errorf("Expected timeout for hash, got %v", result)
         }
         wg.Done()
     }()
     wg.Add(1)
     go func() {
-        if result := w.WaitForNumber(bpb.Number, 250 * time.Millisecond); result != Success {
+        if result := w.WaitForNumberResult(bpb.Number, 250 * time.Millisecond); result != Success {
             t.Errorf("Expected success for number, got %v", result)
         }
         wg.Done()
