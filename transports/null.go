@@ -35,12 +35,14 @@ func (*nullConsumer) ProducerCount(time.Duration) uint {
 
 type nullWaiter struct{}
 
-func (nullWaiter) WaitForHash(types.Hash, time.Duration) waiter.WaitResult {
+func (nullWaiter) WaitForHashResult(types.Hash, time.Duration) waiter.WaitResult {
   return waiter.NotFound
 }
-func (nullWaiter) WaitForNumber(int64, time.Duration) waiter.WaitResult {
+func (nullWaiter) WaitForHash(types.Hash, time.Duration) {}
+func (nullWaiter) WaitForNumberResult(int64, time.Duration) waiter.WaitResult {
   return waiter.NotFound
 }
+func (nullWaiter) WaitForNumber(int64, time.Duration) {}
 func (nullWaiter) Stop() {}
 
 func (*nullConsumer) Waiter() waiter.Waiter {
