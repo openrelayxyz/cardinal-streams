@@ -35,6 +35,7 @@ type PendingBatch struct {
   batches map[types.Hash][]bool
   pendingBatches map[types.Hash]struct{}
   pendingMessages map[string]ResumptionMessage // Key -> Message
+  waitCh chan struct{}
   time time.Time
 }
 
@@ -71,6 +72,11 @@ func (pb *PendingBatch) Ready() bool {
 
 // Done should be called on a pending batch after it has been applied.
 func (pb *PendingBatch) Done() {
+  waitch := pb.waitCh
+  if waitch != nil {
+    pb.waitCh = nil
+    close(waitch)
+  }
   deltaTimerMinor.UpdateSince(pb.time)
   if deltaTimer != nil {
     deltaTimer.UpdateSince(pb.time)
@@ -182,6 +188,7 @@ type MessageProcessor struct {
   completed       *lru.Cache
   feed            types.Feed
   reorgFeed       types.Feed
+  waitFeed        types.Feed
   resumption      map[string]int64
   evictCh         chan int64
 }
@@ -212,6 +219,18 @@ func (mp *MessageProcessor) Subscribe(ch chan<- *PendingBatch) types.Subscriptio
   return mp.feed.Subscribe(ch)
 }
 
+type Waiter struct {
+  Hash   types.Hash
+  Parent types.Hash
+  Number int64
+  WaitCh chan struct{}
+}
+
+// Subscribe to the hashes of pending batches
+func (mp *MessageProcessor) SubscribeWaiters(ch chan<- *Waiter) types.Subscription {
+  return mp.waitFeed.Subscribe(ch)
+}
+
 // Subscribe to reorg notifications
 func (mp *MessageProcessor) SubscribeReorgs(ch chan <- map[int64]types.Hash) types.Subscription {
   return mp.reorgFeed.Subscribe(ch)
@@ -225,6 +244,15 @@ func (mp *MessageProcessor) evictOlderThan(n int64) {
 }
 
 func (mp *MessageProcessor) ProcessCompleteBatch(pb *PendingBatch) {
+	if pb.waitCh == nil {
+		pb.waitCh = make(chan struct{})
+	}
+	mp.waitFeed.Send(&Waiter{
+		Hash: pb.Hash,
+		Parent: pb.ParentHash,
+		Number: pb.Number,
+		WaitCh: pb.waitCh,
+	})
 	mp.feed.Send(pb)
 	mp.lastEmittedNum = pb.Number
 	mp.completed.Add(pb.Hash, struct{}{})
@@ -277,6 +305,13 @@ func (mp *MessageProcessor) ProcessMessage(m ResumptionMessage) error {
     //   delete(mp.pendingMessages, hash)
     //   return nil
     // }
+    waitCh := make(chan struct{})
+    mp.waitFeed.Send(&Waiter{
+      Hash: b.Hash,
+      Parent: b.ParentHash,
+      Number: b.Number,
+      WaitCh: waitCh,
+    })
     mp.pendingBatches[hash] = &PendingBatch{
       Number: b.Number,
       Weight: new(big.Int).SetBytes(b.Weight),
@@ -291,6 +326,7 @@ func (mp *MessageProcessor) ProcessMessage(m ResumptionMessage) error {
       resumption: make(map[string]int64),
       resumptionDefaults: mp.resumptionCopy(),
       time: m.Time(),
+      waitCh: waitCh,
     }
     mp.pendingBatches[hash].updateResumption(m.Source(), m.Offset())
     for prefix, update := range b.Updates {

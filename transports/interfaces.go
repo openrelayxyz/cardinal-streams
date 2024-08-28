@@ -3,6 +3,7 @@ package transports
 import (
   "math/big"
   "github.com/openrelayxyz/cardinal-types"
+  "github.com/openrelayxyz/cardinal-streams/waiter"
   "time"
   // "github.com/openrelayxyz/cardinal-streams/delivery"
 )
@@ -47,6 +48,8 @@ type Consumer interface {
   Subscribe(ch interface{}) types.Subscription
   // SubscribeReorg subscribes to information about large chain reorgs.
   SubscribeReorg(ch chan<- map[int64]types.Hash) types.Subscription
+  //Waiter returns a waiter.Waiter that can be used to wait for blocks by hash or number
+  Waiter() waiter.Waiter
   // Close shuts down the transport layer, which in turn will cause
   // subscriptions to stop producing messages.
   Close()

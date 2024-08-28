@@ -3,6 +3,7 @@ package transports
 import (
   "time"
   "github.com/openrelayxyz/cardinal-types"
+  "github.com/openrelayxyz/cardinal-streams/waiter"
   )
 
 type nullConsumer struct{}
@@ -32,6 +33,21 @@ func (*nullConsumer) ProducerCount(time.Duration) uint {
   return 0
 }
 
+type nullWaiter struct{}
+
+func (nullWaiter) WaitForHashResult(types.Hash, time.Duration) waiter.WaitResult {
+  return waiter.NotFound
+}
+func (nullWaiter) WaitForHash(types.Hash, time.Duration) {}
+func (nullWaiter) WaitForNumberResult(int64, time.Duration) waiter.WaitResult {
+  return waiter.NotFound
+}
+func (nullWaiter) WaitForNumber(int64, time.Duration) {}
+func (nullWaiter) Stop() {}
+
+func (*nullConsumer) Waiter() waiter.Waiter {
+  return nullWaiter{}
+}
 
 type nullSubscription struct{}
 

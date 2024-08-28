@@ -10,6 +10,7 @@ import (
   "reflect"
   "github.com/openrelayxyz/cardinal-types"
   "github.com/openrelayxyz/cardinal-streams/delivery"
+  "github.com/openrelayxyz/cardinal-streams/waiter"
   log "github.com/inconshreveable/log15"
 )
 
@@ -122,6 +123,22 @@ type ProducerBrokerParams struct {
 type muxConsumer struct {
   omp       *delivery.OrderedMessageProcessor
   consumers []Consumer
+  waiter    waiter.Waiter
+}
+
+func (mc *muxConsumer) Waiter() waiter.Waiter {
+  if mc.waiter == nil {
+    for _, c := range mc.consumers {
+      if w := c.Waiter(); w != (nullWaiter{}) {
+        mc.waiter = w
+        break
+      }
+    }
+    if mc.waiter == nil {
+      mc.waiter = nullWaiter{}
+    }
+  }
+  return mc.waiter
 }
 
 func (mc *muxConsumer) ProducerCount(d time.Duration) uint {

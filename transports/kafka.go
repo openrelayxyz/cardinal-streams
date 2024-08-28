@@ -18,6 +18,7 @@ import (
 	lru "github.com/hashicorp/golang-lru"
 	log "github.com/inconshreveable/log15"
 	"github.com/openrelayxyz/cardinal-streams/delivery"
+	"github.com/openrelayxyz/cardinal-streams/waiter"
 	types "github.com/openrelayxyz/cardinal-types"
 	"github.com/openrelayxyz/cardinal-types/metrics"
 	"github.com/openrelayxyz/drumline"
@@ -470,6 +471,7 @@ type KafkaConsumer struct{
   isReorg      bool
   startHash    types.Hash
   pt           pingTracker
+  waiter       waiter.Waiter
 }
 
 func kafkaConsumerWithOMP(omp *delivery.OrderedMessageProcessor, brokerURL, defaultTopic string, topics []string, resumption []byte, rollback int64, lastHash types.Hash) (Consumer, error) {
@@ -758,4 +760,11 @@ func (kc *KafkaConsumer) Close() {
 }
 func (kc *KafkaConsumer) WhyNotReady(hash types.Hash) string {
   return kc.omp.WhyNotReady(hash)
+}
+
+func (kc *KafkaConsumer) Waiter() waiter.Waiter {
+  if kc.waiter == nil {
+    kc.waiter = waiter.NewOmpWaiter(kc.omp)
+  }
+  return kc.waiter
 }
