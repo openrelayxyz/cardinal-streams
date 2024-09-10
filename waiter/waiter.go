@@ -59,6 +59,7 @@ func NewOmpWaiter(omp *delivery.OrderedMessageProcessor) Waiter {
         ch: ch,
     }
     go func() {
+        var nchLock sync.Mutex
         for pw := range ch {
             w.lock.Lock()
             w.hashes[pw.Hash] = pw.WaitCh
@@ -68,8 +69,15 @@ func NewOmpWaiter(omp *delivery.OrderedMessageProcessor) Waiter {
             go func(nch, hch chan struct{}, pw *delivery.Waiter) {
                 select {
                 case <-hch:
-                    // The hash channel delivered, close the number channel
-                    close(nch)
+                    // The hash channel delivered, close the number channel (safely)
+                    nchLock.Lock()
+                    select {
+                    case <-nch:
+                        // Another goroutine already closed the channel
+                    default:
+                        close(nch)
+                    }
+                    nchLock.Unlock()
                     go func() {
                         // Leave the closed channels in the maps for the next 60 seconds
                         time.Sleep(60 * time.Second)
