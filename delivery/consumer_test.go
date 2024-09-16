@@ -48,7 +48,11 @@ func TestConsumer(t *testing.T) {
     },
   )
   if err != nil { t.Errorf(err.Error()) }
-  mp := NewMessageProcessor(0, 128, []*regexp.Regexp{regexp.MustCompile(".*")})
+  mp := NewMessageProcessor(&ConsumerConfig{
+    LastEmittedNum: 0,
+    ReorgThreshold: 128,
+    TrackedPrefixes: []*regexp.Regexp{regexp.MustCompile(".*")},
+  })
   msgs, err := p.AddBlock(
     0,
     types.HexToHash("01"),
@@ -151,7 +155,11 @@ func getTestMessages(t *testing.T, blockCount int) []ResumptionMessage {
 }
 
 func TestShuffled(t *testing.T) {
-  mp := NewMessageProcessor(0, 128, []*regexp.Regexp{regexp.MustCompile(".*")})
+  mp := NewMessageProcessor(&ConsumerConfig{
+    LastEmittedNum: 0,
+    ReorgThreshold: 128,
+    TrackedPrefixes: []*regexp.Regexp{regexp.MustCompile(".*")},
+  })
   ch := make(chan *PendingBatch, 5)
   sub := mp.Subscribe(ch)
   defer sub.Unsubscribe()
@@ -180,7 +188,11 @@ func TestShuffled(t *testing.T) {
 }
 
 func TestShuffledDups(t *testing.T) {
-  mp := NewMessageProcessor(0, 128, []*regexp.Regexp{regexp.MustCompile(".*")})
+  mp := NewMessageProcessor(&ConsumerConfig{
+    LastEmittedNum: 0,
+    ReorgThreshold: 128,
+    TrackedPrefixes: []*regexp.Regexp{regexp.MustCompile(".*")},
+  })
   ch := make(chan *PendingBatch, 5)
   sub := mp.Subscribe(ch)
   defer sub.Unsubscribe()
@@ -211,7 +223,11 @@ func TestShuffledDups(t *testing.T) {
 }
 
 func TestShuffledDupsMultiBlock(t *testing.T) {
-  mp := NewMessageProcessor(0, 128, []*regexp.Regexp{regexp.MustCompile(".*")})
+  mp := NewMessageProcessor(&ConsumerConfig{
+    LastEmittedNum: 0,
+    ReorgThreshold: 128,
+    TrackedPrefixes: []*regexp.Regexp{regexp.MustCompile(".*")},
+  })
   ch := make(chan *PendingBatch, 5)
   sub := mp.Subscribe(ch)
   defer sub.Unsubscribe()
@@ -252,7 +268,11 @@ func TestConsumerReorg(t *testing.T) {
     },
   )
   if err != nil { t.Errorf(err.Error()) }
-  mp := NewMessageProcessor(0, 128, []*regexp.Regexp{regexp.MustCompile(".*")})
+  mp := NewMessageProcessor(&ConsumerConfig{
+    LastEmittedNum: 0,
+    ReorgThreshold: 128,
+    TrackedPrefixes: []*regexp.Regexp{regexp.MustCompile(".*")},
+  })
   msgs, err := p.AddBlock(
     0,
     types.HexToHash("01"),
