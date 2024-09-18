@@ -38,6 +38,7 @@ type PendingBatch struct {
   pendingMessages map[string]ResumptionMessage // Key -> Message
   waitCh chan struct{}
   time time.Time
+  failedReconstructPanic bool
 }
 
 func (pb *PendingBatch) Resumption() string {
@@ -162,6 +163,9 @@ func (pb *PendingBatch) DecPrefixCounter(p string) bool {
     } else if ok && v == 0 {
       log.Error("Got a prefix match with none expected to remain. This message will likely fail to reconstruct.", "path", p, "prefix", k)
       reconstructFailureCounter.Inc(1)
+      if pb.failedReconstructPanic {
+        panic(fmt.Sprintf("reconstruct failed on block %v", pb.Hash))
+      }
       continue // If we got lucky, messsages arived in an order that will allow us to reconstruct if we search higher
     }
   }
@@ -193,6 +197,7 @@ type MessageProcessor struct {
   waitFeed        types.Feed
   resumption      map[string]int64
   evictCh         chan int64
+  failedReconstructPanic bool
 }
 
 // NewMessageProcessor instantiates a MessageProcessor. lastEmittedNum should
@@ -213,6 +218,7 @@ func NewMessageProcessor(cfg *ConsumerConfig) *MessageProcessor {
     oldBlocks:       make(map[types.Hash]struct{}),
     resumption:      make(map[string]int64),
     evictCh:         make(chan int64, 100),
+    failedReconstructPanic: cfg.FailedReconstructPanic,
   }
 }
 
@@ -329,6 +335,7 @@ func (mp *MessageProcessor) ProcessMessage(m ResumptionMessage) error {
       resumptionDefaults: mp.resumptionCopy(),
       time: m.Time(),
       waitCh: waitCh,
+      failedReconstructPanic: mp.failedReconstructPanic,
     }
     mp.pendingBatches[hash].updateResumption(m.Source(), m.Offset())
     for prefix, update := range b.Updates {
