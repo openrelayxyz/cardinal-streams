@@ -9,8 +9,8 @@ import (
   "strings"
   "reflect"
   "github.com/openrelayxyz/cardinal-types"
-  "github.com/openrelayxyz/cardinal-streams/delivery"
-  "github.com/openrelayxyz/cardinal-streams/waiter"
+  "github.com/openrelayxyz/cardinal-streams/v2/delivery"
+  "github.com/openrelayxyz/cardinal-streams/v2/waiter"
   log "github.com/inconshreveable/log15"
 )
 
