@@ -3,7 +3,7 @@ package transports
 import (
   "math/big"
   "github.com/openrelayxyz/cardinal-types"
-  "github.com/openrelayxyz/cardinal-streams/waiter"
+  "github.com/openrelayxyz/cardinal-streams/v2/waiter"
   "time"
   // "github.com/openrelayxyz/cardinal-streams/delivery"
 )

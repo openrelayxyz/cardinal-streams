@@ -2,7 +2,6 @@ package delivery
 
 import (
   "fmt"
-  "regexp"
   "math/big"
   "github.com/openrelayxyz/cardinal-types"
   "github.com/openrelayxyz/cardinal-types/metrics"
@@ -38,28 +37,28 @@ type OrderedMessageProcessor struct {
 }
 
 
-func NewOrderedMessageProcessor(lastNumber int64, lastHash types.Hash, lastWeight *big.Int, reorgThreshold int64, trackedPrefixes []*regexp.Regexp, whitelist map[uint64]types.Hash) (*OrderedMessageProcessor, error) {
-  if whitelist == nil {
-    whitelist = make(map[uint64]types.Hash)
+func NewOrderedMessageProcessor(cfg *ConsumerConfig) (*OrderedMessageProcessor, error) {
+  if cfg.Whitelist == nil {
+    cfg.Whitelist = make(map[uint64]types.Hash)
   }
   omp := &OrderedMessageProcessor{
-    mp: NewMessageProcessor(lastNumber, reorgThreshold, trackedPrefixes),
-    lastHash: lastHash,
-    lastWeight: lastWeight,
-    reorgThreshold: reorgThreshold,
+    mp: NewMessageProcessor(cfg),
+    lastHash: cfg.LastHash,
+    lastWeight: cfg.LastWeight,
+    reorgThreshold: cfg.ReorgThreshold,
     pending: make(map[types.Hash]*PendingBatch),
     queued: make(map[types.Hash]map[types.Hash]struct{}),
     quit: make(chan struct{}),
-    whitelist: whitelist,
+    whitelist: cfg.Whitelist,
     blacklist: make(map[types.Hash]struct{}),
-    initEmpty: lastHash == (types.Hash{}),
+    initEmpty: cfg.LastHash == (types.Hash{}),
   }
   var err error
-  omp.finished, err = lru.NewWithEvict(int(reorgThreshold * 2), func(k, v interface{}) {
+  omp.finished, err = lru.NewWithEvict(int(cfg.ReorgThreshold * 2), func(k, v interface{}) {
     hash := k.(types.Hash)
     omp.evict(hash)
   })
-  omp.finished.Add(lastHash, struct{}{})
+  omp.finished.Add(cfg.LastHash, struct{}{})
   ch := make(chan *PendingBatch, 100)
   reorgCh := make(chan map[int64]types.Hash, 100)
   sub := omp.mp.Subscribe(ch)
@@ -68,7 +67,7 @@ func NewOrderedMessageProcessor(lastNumber int64, lastHash types.Hash, lastWeigh
     for {
       select {
       case pb := <-ch:
-        lastBlock := lastNumber
+        lastBlock := cfg.LastEmittedNum
         if batch, ok := omp.pending[omp.lastHash]; ok {
           lastBlock = batch.Number
         }
