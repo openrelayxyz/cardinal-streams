@@ -26,7 +26,7 @@ func main() {
   trackedPrefixes := []*regexp.Regexp{
     regexp.MustCompile(".*"),
   }
-  log.Error("these are the tracked prefixes", "tp", trackedPrefixes)
+  log.Error("these are the tracked prefixes", "tp", trackedPrefixes, "broker", *brokerURL)
   args := flag.CommandLine.Args()
   if len(args) == 0 {
     log.Crit("requires at least 1 argument")
