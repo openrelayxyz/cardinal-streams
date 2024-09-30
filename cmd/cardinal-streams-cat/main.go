@@ -24,7 +24,7 @@ func main() {
   }
   log.Info("About to set up consumer")
   trackedPrefixes := []*regexp.Regexp{
-    regexp.MustCompile("*"),
+    regexp.MustCompile(".*"),
   }
   args := flag.CommandLine.Args()
   if len(args) == 0 {
