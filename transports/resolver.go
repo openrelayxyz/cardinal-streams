@@ -9,8 +9,8 @@ import (
   "strings"
   "reflect"
   "github.com/openrelayxyz/cardinal-types"
-  "github.com/openrelayxyz/cardinal-streams/delivery"
-  "github.com/openrelayxyz/cardinal-streams/waiter"
+  "github.com/openrelayxyz/cardinal-streams/v2/delivery"
+  "github.com/openrelayxyz/cardinal-streams/v2/waiter"
   log "github.com/inconshreveable/log15"
 )
 
@@ -49,10 +49,10 @@ func ResolveMuxProducer(brokerParams []ProducerBrokerParams, resumer StreamsResu
 
 
 //brokerURL, defaultTopic string, topics []string, resumption []byte, rollback, lastNumber int64, lastHash types.Hash, lastWeight *big.Int, reorgThreshold int64, trackedPrefixes []*regexp.Regexp, whitelist map[uint64]types.Hash
-func ResolveConsumer(brokerURL, defaultTopic string, topics []string, resumption []byte, rollback, lastNumber int64, lastHash types.Hash, lastWeight *big.Int, reorgThreshold int64, trackedPrefixes []*regexp.Regexp, whitelist map[uint64]types.Hash) (Consumer, error) {
-  omp, err := delivery.NewOrderedMessageProcessor(lastNumber, lastHash, lastWeight, reorgThreshold, trackedPrefixes, whitelist)
+func ResolveConsumer(brokerURL, defaultTopic string, topics []string, resumption []byte, rollback int64, cfg *delivery.ConsumerConfig) (Consumer, error) {
+  omp, err := delivery.NewOrderedMessageProcessor(cfg)
   if err != nil { return nil, err }
-  return resolveConsumer(omp, brokerURL, defaultTopic, topics, resumption, rollback, lastNumber, lastHash, trackedPrefixes)
+  return resolveConsumer(omp, brokerURL, defaultTopic, topics, resumption, rollback, cfg.LastEmittedNum, cfg.LastHash, cfg.TrackedPrefixes)
 }
 
 func resolveConsumer(omp *delivery.OrderedMessageProcessor, brokerURL, defaultTopic string, topics []string, resumption []byte, rollback, lastNumber int64, lastHash types.Hash, trackedPrefixes []*regexp.Regexp) (Consumer, error) {
@@ -91,15 +91,15 @@ func ResumptionForTimestamp(brokerParams []BrokerParams, timestamp int64) ([]byt
 }
 
 // ResolveMuxConsumer takes a list of broker configurations
-func ResolveMuxConsumer(brokerParams []BrokerParams, resumption []byte, lastNumber int64, lastHash types.Hash, lastWeight *big.Int, reorgThreshold int64, trackedPrefixes []*regexp.Regexp, whitelist map[uint64]types.Hash) (Consumer, error) {
-  omp, err := delivery.NewOrderedMessageProcessor(lastNumber, lastHash, lastWeight, reorgThreshold, trackedPrefixes, whitelist)
+func ResolveMuxConsumer(brokerParams []BrokerParams, resumption []byte, cfg *delivery.ConsumerConfig) (Consumer, error) {
+  omp, err := delivery.NewOrderedMessageProcessor(cfg)
   if err != nil { return nil, err }
   mc := &muxConsumer{
     omp: omp,
     consumers: []Consumer{},
   }
   for _, bp := range brokerParams {
-    c, err := resolveConsumer(omp, bp.URL, bp.DefaultTopic, bp.Topics, resumption, bp.Rollback, lastNumber, lastHash, trackedPrefixes)
+    c, err := resolveConsumer(omp, bp.URL, bp.DefaultTopic, bp.Topics, resumption, bp.Rollback, cfg.LastEmittedNum, cfg.LastHash, cfg.TrackedPrefixes)
     if err != nil { return nil, err }
     mc.consumers = append(mc.consumers, c)
   }

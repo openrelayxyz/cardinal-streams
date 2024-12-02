@@ -30,7 +30,13 @@ func TestWaiterSuccess(t *testing.T) {
         ParentHash: types.Hash{},
         Weight: new(big.Int),
     }
-    omp, err := delivery.NewOrderedMessageProcessor(zpb.Number, zpb.Hash, zpb.Weight, 128, []*regexp.Regexp{regexp.MustCompile(".")}, nil)
+    omp, err := delivery.NewOrderedMessageProcessor(&delivery.ConsumerConfig{
+        LastEmittedNum: zpb.Number,
+        LastHash: zpb.Hash,
+        LastWeight: zpb.Weight,
+        ReorgThreshold: 128,
+        TrackedPrefixes: []*regexp.Regexp{regexp.MustCompile(".")},
+    })
     if err != nil {
         t.Fatalf(err.Error())
     }
@@ -39,7 +45,7 @@ func TestWaiterSuccess(t *testing.T) {
     go func() {
         for cu := range ch {
             cu.Done()
-        }        
+        }
     }()
     defer sub.Unsubscribe()
     defer close(ch)
@@ -74,7 +80,13 @@ func TestWaiterTimeout(t *testing.T) {
         ParentHash: types.Hash{},
         Weight: new(big.Int),
     }
-    omp, err := delivery.NewOrderedMessageProcessor(zpb.Number, zpb.Hash, zpb.Weight, 128, []*regexp.Regexp{regexp.MustCompile(".")}, nil)
+    omp, err := delivery.NewOrderedMessageProcessor(&delivery.ConsumerConfig{
+        LastEmittedNum: zpb.Number,
+        LastHash: zpb.Hash,
+        LastWeight: zpb.Weight,
+        ReorgThreshold: 128,
+        TrackedPrefixes: []*regexp.Regexp{regexp.MustCompile(".")},
+    })
     if err != nil {
         t.Fatalf(err.Error())
     }
@@ -83,7 +95,7 @@ func TestWaiterTimeout(t *testing.T) {
     go func() {
         for cu := range ch {
             cu.Done()
-        }        
+        }
     }()
     defer sub.Unsubscribe()
     defer close(ch)
@@ -117,7 +129,13 @@ func TestWaiterReorg(t *testing.T) {
         ParentHash: types.Hash{},
         Weight: new(big.Int),
     }
-    omp, err := delivery.NewOrderedMessageProcessor(zpb.Number, zpb.Hash, zpb.Weight, 128, []*regexp.Regexp{regexp.MustCompile(".")}, nil)
+    omp, err := delivery.NewOrderedMessageProcessor(&delivery.ConsumerConfig{
+        LastEmittedNum: zpb.Number,
+        LastHash: zpb.Hash,
+        LastWeight: zpb.Weight,
+        ReorgThreshold: 128,
+        TrackedPrefixes: []*regexp.Regexp{regexp.MustCompile(".")},
+    })
     if err != nil {
         t.Fatalf(err.Error())
     }
@@ -126,7 +144,7 @@ func TestWaiterReorg(t *testing.T) {
     go func() {
         for cu := range ch {
             cu.Done()
-        }        
+        }
     }()
     defer sub.Unsubscribe()
     defer close(ch)

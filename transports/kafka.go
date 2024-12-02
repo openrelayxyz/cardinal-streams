@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"net/url"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,8 +16,8 @@ import (
 	"github.com/Shopify/sarama"
 	lru "github.com/hashicorp/golang-lru"
 	log "github.com/inconshreveable/log15"
-	"github.com/openrelayxyz/cardinal-streams/delivery"
-	"github.com/openrelayxyz/cardinal-streams/waiter"
+	"github.com/openrelayxyz/cardinal-streams/v2/delivery"
+	"github.com/openrelayxyz/cardinal-streams/v2/waiter"
 	types "github.com/openrelayxyz/cardinal-types"
 	"github.com/openrelayxyz/cardinal-types/metrics"
 	"github.com/openrelayxyz/drumline"
@@ -530,10 +529,10 @@ func kafkaResumptionForTimestamp(brokerURL string, topics []string, timestamp in
 
 // NewKafkaConsumer provides a transports.Consumer that pulls messages from a
 // Kafka broker
-func NewKafkaConsumer(brokerURL, defaultTopic string, topics []string, resumption []byte, rollback, lastNumber int64, lastHash types.Hash, lastWeight *big.Int, reorgThreshold int64, trackedPrefixes []*regexp.Regexp, whitelist map[uint64]types.Hash) (Consumer, error) {
-  omp, err := delivery.NewOrderedMessageProcessor(lastNumber, lastHash, lastWeight, reorgThreshold, trackedPrefixes, whitelist)
+func NewKafkaConsumer(brokerURL, defaultTopic string, topics []string, resumption []byte, rollback int64, cfg *delivery.ConsumerConfig) (Consumer, error) {
+  omp, err := delivery.NewOrderedMessageProcessor(cfg)
   if err != nil { return nil, err }
-  return kafkaConsumerWithOMP(omp, brokerURL, defaultTopic, topics, resumption, rollback, lastHash)
+  return kafkaConsumerWithOMP(omp, brokerURL, defaultTopic, topics, resumption, rollback, cfg.LastHash)
 }
 
 func (kc *KafkaConsumer) Start() error {

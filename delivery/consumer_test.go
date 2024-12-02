@@ -9,6 +9,7 @@ import (
   // "strings"
   "regexp"
   "runtime"
+  // "fmt"
 )
 
 type testResumptionMessage struct{
@@ -48,7 +49,11 @@ func TestConsumer(t *testing.T) {
     },
   )
   if err != nil { t.Errorf(err.Error()) }
-  mp := NewMessageProcessor(0, 128, []*regexp.Regexp{regexp.MustCompile(".*")})
+  mp := NewMessageProcessor(&ConsumerConfig{
+    LastEmittedNum: 0,
+    ReorgThreshold: 128,
+    TrackedPrefixes: []*regexp.Regexp{regexp.MustCompile(".*")},
+  })
   msgs, err := p.AddBlock(
     0,
     types.HexToHash("01"),
@@ -149,9 +154,43 @@ func getTestMessages(t *testing.T, blockCount int) []ResumptionMessage {
   }
   return toTestResumptionMessage(msgs...)
 }
+func getAlternateTestMessages(t *testing.T, blockCount int) []ResumptionMessage {
+  p, err := NewProducer(
+    "default",
+    map[string]string{
+      "foo/": "foo",
+      "bar/[^/]+/baz/": "bar",
+      "state/thing": "state",
+    },
+  )
+  if err != nil { t.Errorf(err.Error()) }
+  msgs := []map[string][]Message{}
+  for i := 1; i <= blockCount ; i++ {
+    blockHash := types.BytesToHash([]byte{byte(i)})
+    parentHash := types.BytesToHash([]byte{byte(i-1)})
+    m, err := p.AddBlock(
+      int64(i),
+      blockHash,
+      parentHash,
+      new(big.Int),
+      map[string][]byte{},
+      map[string]struct{}{
+        "foo/somethingelse": struct{}{},
+      },
+      map[string]types.Hash{},
+    )
+    if err != nil { t.Fatalf(err.Error()) }
+    msgs = append(msgs, m)
+  }
+  return toTestResumptionMessage(msgs...)
+}
 
 func TestShuffled(t *testing.T) {
-  mp := NewMessageProcessor(0, 128, []*regexp.Regexp{regexp.MustCompile(".*")})
+  mp := NewMessageProcessor(&ConsumerConfig{
+    LastEmittedNum: 0,
+    ReorgThreshold: 128,
+    TrackedPrefixes: []*regexp.Regexp{regexp.MustCompile(".*")},
+  })
   ch := make(chan *PendingBatch, 5)
   sub := mp.Subscribe(ch)
   defer sub.Unsubscribe()
@@ -178,9 +217,63 @@ func TestShuffled(t *testing.T) {
   default:
   }
 }
+func TestFailedReconstructNoPanic(t *testing.T) {
+  mp := NewMessageProcessor(&ConsumerConfig{
+    LastEmittedNum: 0,
+    ReorgThreshold: 128,
+    TrackedPrefixes: []*regexp.Regexp{regexp.MustCompile(".*")},
+    FailedReconstructPanic: false,
+  })
+  ch := make(chan *PendingBatch, 5)
+  sub := mp.Subscribe(ch)
+  defer sub.Unsubscribe()
+  msgList := getTestMessages(t, 1)
+  msgList = append(getAlternateTestMessages(t, 1)[1:], msgList...)
+  for _, msg := range msgList[:] {
+    if err := mp.ProcessMessage(msg); err != nil { t.Errorf(err.Error()) }
+  }
+  runtime.Gosched()
+  select {
+  case v := <-ch:
+    if v.Number != 1 { t.Errorf("Unexpected batch number") }
+    if v.Weight.Cmp(new(big.Int)) != 0 { t.Errorf("Unexpected weight") }
+    if v.ParentHash != types.HexToHash("00") { t.Errorf("Unexpected hash" ) }
+  default:
+    t.Errorf("Expected item on channel, nothing yet (%v) - %v", mp.pendingBatches[types.HexToHash("01")].whyNotReady(), msgList[len(msgList) - 1])
+  }
+  select {
+  case v := <-ch:
+    t.Errorf("Unexpected item on channel: %v", v)
+  default:
+  }
+}
+func TestFailedReconstructPanic(t *testing.T) {
+  mp := NewMessageProcessor(&ConsumerConfig{
+    LastEmittedNum: 0,
+    ReorgThreshold: 128,
+    TrackedPrefixes: []*regexp.Regexp{regexp.MustCompile(".*")},
+    FailedReconstructPanic: true,
+  })
+  ch := make(chan *PendingBatch, 5)
+  sub := mp.Subscribe(ch)
+  defer sub.Unsubscribe()
+  msgList := getTestMessages(t, 1)
+  msgList = append(getAlternateTestMessages(t, 1)[1:], msgList...)
+  defer func() {
+    recover()
+  }()
+  for _, msg := range msgList[:] {
+    if err := mp.ProcessMessage(msg); err != nil { t.Errorf(err.Error()) }
+  }
+  t.Errorf("Expected panic before now")
+}
 
 func TestShuffledDups(t *testing.T) {
-  mp := NewMessageProcessor(0, 128, []*regexp.Regexp{regexp.MustCompile(".*")})
+  mp := NewMessageProcessor(&ConsumerConfig{
+    LastEmittedNum: 0,
+    ReorgThreshold: 128,
+    TrackedPrefixes: []*regexp.Regexp{regexp.MustCompile(".*")},
+  })
   ch := make(chan *PendingBatch, 5)
   sub := mp.Subscribe(ch)
   defer sub.Unsubscribe()
@@ -211,7 +304,11 @@ func TestShuffledDups(t *testing.T) {
 }
 
 func TestShuffledDupsMultiBlock(t *testing.T) {
-  mp := NewMessageProcessor(0, 128, []*regexp.Regexp{regexp.MustCompile(".*")})
+  mp := NewMessageProcessor(&ConsumerConfig{
+    LastEmittedNum: 0,
+    ReorgThreshold: 128,
+    TrackedPrefixes: []*regexp.Regexp{regexp.MustCompile(".*")},
+  })
   ch := make(chan *PendingBatch, 5)
   sub := mp.Subscribe(ch)
   defer sub.Unsubscribe()
@@ -252,7 +349,11 @@ func TestConsumerReorg(t *testing.T) {
     },
   )
   if err != nil { t.Errorf(err.Error()) }
-  mp := NewMessageProcessor(0, 128, []*regexp.Regexp{regexp.MustCompile(".*")})
+  mp := NewMessageProcessor(&ConsumerConfig{
+    LastEmittedNum: 0,
+    ReorgThreshold: 128,
+    TrackedPrefixes: []*regexp.Regexp{regexp.MustCompile(".*")},
+  })
   msgs, err := p.AddBlock(
     0,
     types.HexToHash("01"),

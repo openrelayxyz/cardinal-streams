@@ -2,7 +2,7 @@ package waiter
 
 import (
     "time"
-    "github.com/openrelayxyz/cardinal-streams/delivery"
+    "github.com/openrelayxyz/cardinal-streams/v2/delivery"
     "github.com/openrelayxyz/cardinal-types"
     "github.com/openrelayxyz/cardinal-types/metrics"
     "sync"

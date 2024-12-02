@@ -1,10 +1,22 @@
 package delivery
 
 import (
+  "math/big"
   "github.com/openrelayxyz/cardinal-types"
   "github.com/hamba/avro"
   "time"
+  "regexp"
 )
+
+type ConsumerConfig struct {
+  LastEmittedNum int64
+  LastHash types.Hash
+  LastWeight *big.Int
+  ReorgThreshold int64
+  TrackedPrefixes []*regexp.Regexp
+  Whitelist map[uint64]types.Hash
+  FailedReconstructPanic bool
+}
 
 
 type Batch struct{
