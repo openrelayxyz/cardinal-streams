@@ -126,7 +126,14 @@ func (pb *PendingBatch) ApplyMessage(m ResumptionMessage) bool {
     return true
   case BatchMsgType:
     path := string(m.Key()[33:])
-    if v, ok := pb.Values[path]; ok && len(v) > 0 { return false } // Already set
+    if v, ok := pb.Values[path]; ok {
+      if len(v) == 0 && len(m.Value()) != 0 {
+        // If for some reason the stored value is empty but the message value is not, update to the message value
+        pb.Values[path] = m.Value()
+        return true
+      }
+      return false
+    } // Already set
     if pb.DecPrefixCounter(path) {
       // If this is false, we're not tracking this prefix and should ignore the message
       pb.Values[path] = m.Value()
