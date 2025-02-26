@@ -471,9 +471,10 @@ type KafkaConsumer struct{
   startHash    types.Hash
   pt           pingTracker
   waiter       waiter.Waiter
+  blacklist    map[string]map[int32]map[int64]struct{}
 }
 
-func kafkaConsumerWithOMP(omp *delivery.OrderedMessageProcessor, brokerURL, defaultTopic string, topics []string, resumption []byte, rollback int64, lastHash types.Hash) (Consumer, error) {
+func kafkaConsumerWithOMP(omp *delivery.OrderedMessageProcessor, brokerURL, defaultTopic string, topics []string, resumption []byte, rollback int64, lastHash types.Hash, blacklist map[string]map[int32]map[int64]struct{}) (Consumer, error) {
   resumptionMap := make(map[string]int64)
   for _, token := range strings.Split(string(resumption), ";") {
     parts := strings.Split(token, "=")
@@ -500,6 +501,7 @@ func kafkaConsumerWithOMP(omp *delivery.OrderedMessageProcessor, brokerURL, defa
     rollback: rollback,
     startHash: lastHash,
     pt: make(pingTracker),
+    blacklist: blacklist,
   }, nil
 }
 
@@ -532,7 +534,7 @@ func kafkaResumptionForTimestamp(brokerURL string, topics []string, timestamp in
 func NewKafkaConsumer(brokerURL, defaultTopic string, topics []string, resumption []byte, rollback int64, cfg *delivery.ConsumerConfig) (Consumer, error) {
   omp, err := delivery.NewOrderedMessageProcessor(cfg)
   if err != nil { return nil, err }
-  return kafkaConsumerWithOMP(omp, brokerURL, defaultTopic, topics, resumption, rollback, cfg.LastHash)
+  return kafkaConsumerWithOMP(omp, brokerURL, defaultTopic, topics, resumption, rollback, cfg.LastHash, cfg.Blacklist)
 }
 
 func (kc *KafkaConsumer) Start() error {
@@ -579,6 +581,16 @@ func (kc *KafkaConsumer) Start() error {
       }
       log.Info("Starting partition consumer", "topic", topic, "partition", partid, "offset", offset, "startOffset", startOffset)
       go func(pc sarama.PartitionConsumer, startOffset int64, partid int32, i int, topic string) {
+        var partBlacklist map[int64]struct{}
+        if topicBlacklist, ok := kc.blacklist[topic]; ok {
+          if pbl, ok := topicBlacklist[partid]; ok {
+            partBlacklist = pbl
+          } else {
+            partBlacklist = make(map[int64]struct{})
+          }
+        } else {
+          partBlacklist = make(map[int64]struct{})
+        }
         kc.shutdownWg.Add(1)
         defer kc.shutdownWg.Done()
         dl.AddScale(i, startOffset)
@@ -610,7 +622,9 @@ func (kc *KafkaConsumer) Start() error {
               })
             }
           }
-          messages <- input
+          if _, blacklisted := partBlacklist[input.Offset]; !blacklisted {
+            messages <- input
+          }
         }
       }(pc, startOffset, partid, len(partitionConsumers), topic)
       partitionConsumers = append(partitionConsumers, pc)

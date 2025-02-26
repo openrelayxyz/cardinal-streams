@@ -52,13 +52,13 @@ func ResolveMuxProducer(brokerParams []ProducerBrokerParams, resumer StreamsResu
 func ResolveConsumer(brokerURL, defaultTopic string, topics []string, resumption []byte, rollback int64, cfg *delivery.ConsumerConfig) (Consumer, error) {
   omp, err := delivery.NewOrderedMessageProcessor(cfg)
   if err != nil { return nil, err }
-  return resolveConsumer(omp, brokerURL, defaultTopic, topics, resumption, rollback, cfg.LastEmittedNum, cfg.LastHash, cfg.TrackedPrefixes)
+  return resolveConsumer(omp, brokerURL, defaultTopic, topics, resumption, rollback, cfg.LastEmittedNum, cfg.LastHash, cfg.TrackedPrefixes, cfg.Blacklist)
 }
 
-func resolveConsumer(omp *delivery.OrderedMessageProcessor, brokerURL, defaultTopic string, topics []string, resumption []byte, rollback, lastNumber int64, lastHash types.Hash, trackedPrefixes []*regexp.Regexp) (Consumer, error) {
+func resolveConsumer(omp *delivery.OrderedMessageProcessor, brokerURL, defaultTopic string, topics []string, resumption []byte, rollback, lastNumber int64, lastHash types.Hash, trackedPrefixes []*regexp.Regexp, blacklist map[string]map[int32]map[int64]struct{}) (Consumer, error) {
   switch protocol := strings.Split(strings.TrimPrefix(brokerURL, "cardinal://"), "://"); protocol[0] {
   case "kafka":
-    return kafkaConsumerWithOMP(omp, brokerURL, defaultTopic, topics, resumption, rollback, lastHash)
+    return kafkaConsumerWithOMP(omp, brokerURL, defaultTopic, topics, resumption, rollback, lastHash, blacklist)
   case "ws", "wss":
     prefixes := make([]string, len(trackedPrefixes))
     for i, p := range trackedPrefixes {
@@ -99,7 +99,7 @@ func ResolveMuxConsumer(brokerParams []BrokerParams, resumption []byte, cfg *del
     consumers: []Consumer{},
   }
   for _, bp := range brokerParams {
-    c, err := resolveConsumer(omp, bp.URL, bp.DefaultTopic, bp.Topics, resumption, bp.Rollback, cfg.LastEmittedNum, cfg.LastHash, cfg.TrackedPrefixes)
+    c, err := resolveConsumer(omp, bp.URL, bp.DefaultTopic, bp.Topics, resumption, bp.Rollback, cfg.LastEmittedNum, cfg.LastHash, cfg.TrackedPrefixes, cfg.Blacklist)
     if err != nil { return nil, err }
     mc.consumers = append(mc.consumers, c)
   }

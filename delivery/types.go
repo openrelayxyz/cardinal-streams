@@ -15,6 +15,7 @@ type ConsumerConfig struct {
   ReorgThreshold int64
   TrackedPrefixes []*regexp.Regexp
   Whitelist map[uint64]types.Hash
+  Blacklist map[string]map[int32]map[int64]struct{}
   FailedReconstructPanic bool
 }
 
