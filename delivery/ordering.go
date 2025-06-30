@@ -103,6 +103,7 @@ func NewOrderedMessageProcessor(cfg *ConsumerConfig) (*OrderedMessageProcessor, 
 
 func (omp *OrderedMessageProcessor) evict(hash types.Hash) {
   if pb, ok := omp.pending[hash]; ok {
+    log.Debug("Evicting hash", "hash", hash)
     delete(omp.pending, pb.Hash)
     omp.mp.evictOlderThan(pb.Number)
     omp.evict(pb.ParentHash) // If the parent is still being tracked we can go ahead and get rid of it
@@ -299,14 +300,19 @@ func (omp *OrderedMessageProcessor) getPendingChild(hash types.Hash) (types.Hash
   }
   max := new(big.Int)
   var maxChild types.Hash
+  var foundChild bool
   for child := range children {
     td := omp.getPendingChainDifficulty(child)
+    if td.Sign() == 0 {
+      log.Warn("Pending child weight missing", "parent", hash, "child", child)
+    }
     if max.Cmp(td) < 0 {
       max = td
       maxChild = child
+      foundChild = true
     }
   }
-  return maxChild, true
+  return maxChild, foundChild
 }
 
 // getPendingChainDifficulty returns the weight of the heaviest chain
@@ -319,6 +325,7 @@ func (omp *OrderedMessageProcessor) getPendingChainDifficulty(hash types.Hash) (
     if pb, ok := omp.pending[hash]; ok {
       return pb.Weight
     }
+    log.Warn("Hash queued as child but not pending", "hash", hash)
     return new(big.Int)
   }
   max := new(big.Int)
