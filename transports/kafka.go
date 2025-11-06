@@ -26,16 +26,21 @@ import (
 var (
   skippedBlocks = metrics.NewMinorHistogram("/streams/skipped")
   producerCount = metrics.NewMajorGauge("/streams/producers")
+  ptLock = new(sync.Mutex)
 )
 
 type pingTracker map[types.Hash]time.Time
 
 func (pt pingTracker) update(key types.Hash) {
+  ptLock.Lock()
   pt[key] = time.Now()
+  ptLock.Unlock()
 }
 
 func (pt pingTracker) ProducerCount(d time.Duration) uint {
   var count uint
+  ptLock.Lock()
+  defer ptLock.Unlock()
   for _, v := range pt {
     if time.Since(v) < d {
       count++
