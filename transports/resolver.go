@@ -255,6 +255,19 @@ func (mp *muxProducer) LatestBlockFromFeed() (int64, error) {
 	return 0, topErr
 }
 
+func (mp *muxProducer) LatestBlockDataFromFeed() (int64, types.Hash, []byte, error) {
+	var topErr error
+	for _, p := range mp.producers {
+		v, h, w, err := p.LatestBlockDataFromFeed()
+		if err != nil {
+			topErr = err
+			continue
+		}
+    return v, h, w, nil
+  }
+  return 0, types.Hash{}, []byte{}, topErr
+}
+
 func (mp *muxProducer) AddBlock(number int64, hash, parentHash types.Hash, weight *big.Int, updates map[string][]byte, deletes map[string]struct{}, batches map[string]types.Hash) error {
 	errs := []error{}
 	for _, p := range mp.producers {

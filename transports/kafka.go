@@ -403,27 +403,37 @@ func (kp *KafkaProducer) Reorg(number int64, hash types.Hash) (func(), error) {
 // specified by an operator in case messages are needed to start on the correct
 // side of a reorg while the feed has messages from a longer but invalid chain.
 func (kp *KafkaProducer) LatestBlockFromFeed() (int64, error) {
+  num, _, _, err := kp.LatestBlockDataFromFeed()
+  return num, err
+}
+
+func kp.LatestBlockDataFromFeed() (int64, types.Hash, []byte, error) {
+  var highestNumber int64
+  var highestHash types.Hash
+  var highestWeight []byte
+  log.Error("inside of latestBlockDataFromFeed")
   brokerList, config := ParseKafkaURL(kp.brokerURL)
   client, err := sarama.NewClient(brokerList, config)
-  if err != nil { return 0, err }
+  if err != nil { return 0, highestHash, highestWeight, err }
   consumer, err := sarama.NewConsumerFromClient(client)
-  if err != nil { return 0, err }
+  if err != nil { return 0, highestHash, highestWeight, err }
   partitions, err := consumer.Partitions(kp.defaultTopic)
-  if err != nil { return 0, err }
-  var highestNumber int64
+  if err != nil { return 0, highestHash, highestWeight, err }
   for _, partid := range partitions {
     offset, err := client.GetOffset(kp.defaultTopic, partid, sarama.OffsetNewest)
     if err != nil {
-      log.Info("Failed to get offset", "topic", kp.defaultTopic, "partition", partid)
+      log.Info("Failed to get offset", "topic", kp.defaultTopic, "partition", partid, "err", err)
       continue
     }
+    log.Error("beyond offset error", "offset val", offset)
     if offset == 0 { continue }
-    offset -= 100
+    offset -= 500 // <== EXPERIMENT MOD, 100 -> 500
+    log.Error("new offset value", "offset", offset)
     if offset < 0 { offset = sarama.OffsetOldest }
     pc, err := consumer.ConsumePartition(kp.defaultTopic, partid, offset)
     if err != nil {
       pc, err = consumer.ConsumePartition(kp.defaultTopic, partid, sarama.OffsetOldest)
-      if err != nil { return 0, err }
+      if err != nil { return 0, highestHash, highestWeight, err }
     }
     PARTITION_LOOP:
     for {
@@ -440,7 +450,11 @@ func (kp *KafkaProducer) LatestBlockFromFeed() (int64, error) {
             log.Warn("Error unmarshalling batch", "err", err)
             continue
           }
-          if b.Number > highestNumber { highestNumber = b.Number }
+          if b.Number > highestNumber { 
+            highestNumber = b.Number
+            highestHash = types.BytesToHash(input.Key[1:33])
+            highestWeight = b.Weight
+          }
         }
       case <-time.NewTimer(time.Second).C:
         log.Info("No messages available on partition", "topic", kp.defaultTopic, "partition", partid)
@@ -448,7 +462,7 @@ func (kp *KafkaProducer) LatestBlockFromFeed() (int64, error) {
       }
     }
   }
-  return highestNumber, nil
+  return highestNumber, highestHash, highestWeight, nil
 }
 
 func (kp *KafkaProducer) PurgeReplayCache() {

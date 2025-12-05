@@ -128,6 +128,11 @@ func (p *websocketProducer) Service() interface{} {
 func (p *websocketProducer) LatestBlockFromFeed() (int64, error) {
 	return 0, fmt.Errorf("not implemented")
 }
+
+func (p *websocketProducer) LatestBlockDataFromFeed() (int64, types.Hash, []byte, error) {
+	return 0, types.Hash{} , nil, fmt.Errorf("not implemented")
+}
+
 func (p *websocketProducer) AddBlock(number int64, hash, parentHash types.Hash, weight *big.Int, updates map[string][]byte, deletes map[string]struct{}, batches map[string]types.Hash) error {
 	updateData := make(map[string]hexutil.Bytes)
 	deleteData := make([]string, 0, len(deletes))
