@@ -407,7 +407,7 @@ func (kp *KafkaProducer) LatestBlockFromFeed() (int64, error) {
   return num, err
 }
 
-func kp.LatestBlockDataFromFeed() (int64, types.Hash, []byte, error) {
+func (kp *KafkaProducer) LatestBlockDataFromFeed() (int64, types.Hash, []byte, error) {
   var highestNumber int64
   var highestHash types.Hash
   var highestWeight []byte
