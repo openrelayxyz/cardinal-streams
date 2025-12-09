@@ -16,6 +16,7 @@ type ProducerCounter interface {
 type Producer interface {
   ProducerCounter
   LatestBlockFromFeed() (int64, error)
+  LatestBlockDataFromFeed() (int64, types.Hash, []byte, error)
   // AddBlock will send information about a block over the transport layer.
   AddBlock(number int64, hash, parentHash types.Hash, weight *big.Int, updates map[string][]byte, deletes map[string]struct{}, batches map[string]types.Hash) error
   // SendBatch will send information about batches over the transport layer.
